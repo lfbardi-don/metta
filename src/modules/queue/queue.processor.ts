@@ -105,9 +105,8 @@ export class QueueProcessor implements OnModuleInit {
 
     try {
       // 1. Parse message body
-      payload = this.queueService.parseMessageBody<ChatwootWebhookPayload>(
-        sqsMessage,
-      );
+      payload =
+        this.queueService.parseMessageBody<ChatwootWebhookPayload>(sqsMessage);
 
       if (!payload) {
         this.logger.error('Failed to parse message body');

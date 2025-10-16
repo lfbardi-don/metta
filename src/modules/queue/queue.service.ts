@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   SQSClient,
@@ -164,9 +169,7 @@ export class QueueService implements OnModuleInit, OnModuleDestroy {
       });
 
       await this.sqsClient.send(command);
-      this.logger.debug(
-        `Message visibility changed to ${timeout} seconds`,
-      );
+      this.logger.debug(`Message visibility changed to ${timeout} seconds`);
     } catch (error) {
       this.logger.error('Error changing message visibility', error);
       throw error;

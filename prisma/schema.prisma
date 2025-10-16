@@ -16,7 +16,7 @@ model Message {
   messageId      String?  @unique // External message ID from Chatwoot
   contactId      String?
   content        String
-  direction      String   // 'incoming' | 'outgoing'
+  direction      String // 'incoming' | 'outgoing'
   messageType    String   @default("text") // 'text' | 'interactive'
   metadata       Json?
   createdAt      DateTime @default(now())

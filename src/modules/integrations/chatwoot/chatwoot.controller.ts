@@ -34,7 +34,9 @@ export class ChatwootController {
    * NOT used in production (Lambda handles webhooks)
    */
   @Post('simulate')
-  async simulateMessage(@Body() payload: any): Promise<{ status: string }> {
+  async simulateMessage(
+    @Body() payload: any,
+  ): Promise<{ status: string; message: string }> {
     this.logger.log('Test message received', {
       event: payload.event,
       conversationId: payload.conversation?.id,
@@ -45,7 +47,7 @@ export class ChatwootController {
 
     return {
       status: 'simulated',
-      note: 'This is a test endpoint. Production uses Lambda → SQS → Worker',
+      message: 'This is a test endpoint. Production uses Lambda → SQS → Worker',
     };
   }
 }

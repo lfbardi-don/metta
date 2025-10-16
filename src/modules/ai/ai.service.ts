@@ -47,7 +47,9 @@ export class AIService implements OnModuleInit {
     );
 
     if (!inputValidation.allowed) {
-      this.logger.warn('Input validation failed', { checks: inputValidation.checks });
+      this.logger.warn('Input validation failed', {
+        checks: inputValidation.checks,
+      });
       throw new Error('Message blocked by guardrails');
     }
 
@@ -61,11 +63,21 @@ export class AIService implements OnModuleInit {
     );
 
     if (!outputValidation.allowed) {
-      this.logger.warn('Output validation failed', { checks: outputValidation.checks });
+      this.logger.warn('Output validation failed', {
+        checks: outputValidation.checks,
+      });
       throw new Error('Response blocked by guardrails');
     }
 
     return response;
+  }
+
+  /**
+   * Simple chat method for testing (bypasses guardrails)
+   * Use processMessage() for production with full validation
+   */
+  async chatSimple(message: string): Promise<string> {
+    return await this.chat(message);
   }
 
   /**

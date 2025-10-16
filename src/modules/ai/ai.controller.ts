@@ -11,7 +11,7 @@ export class ChatResponseDto {
 
 @Controller('ai')
 export class AIController {
-  constructor(private readonly aiService: AIService) { }
+  constructor(private readonly aiService: AIService) {}
 
   @Post('chat')
   async chat(@Body() body: ChatRequestDto): Promise<ChatResponseDto> {
@@ -19,6 +19,7 @@ export class AIController {
       throw new Error('Message is required');
     }
 
-    return await this.aiService.chat(body.message);
+    const output = await this.aiService.chatSimple(body.message);
+    return { output };
   }
 }
