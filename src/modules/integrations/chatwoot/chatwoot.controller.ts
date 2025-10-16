@@ -1,21 +1,51 @@
-import { Controller, Post, Body, Logger } from '@nestjs/common';
+import { Controller, Post, Body, Logger, Get } from '@nestjs/common';
 import { ChatwootService } from './chatwoot.service';
 
-@Controller('webhooks/chatwoot')
+/**
+ * ChatwootController - OPTIONAL/TEST ONLY
+ *
+ * This controller is NOT used in production.
+ * Production webhooks are received by AWS Lambda and sent to SQS.
+ *
+ * This controller is only for:
+ * - Local development testing
+ * - Simulating messages without Lambda/SQS
+ * - Health checks
+ */
+@Controller('test/chatwoot')
 export class ChatwootController {
   private readonly logger = new Logger(ChatwootController.name);
 
   constructor(private readonly chatwootService: ChatwootService) {}
 
   /**
-   * Webhook endpoint for Chatwoot events
+   * Health check endpoint
    */
-  @Post()
-  async handleWebhook(@Body() payload: any): Promise<{ status: string }> {
-    // TODO: Process webhook payload
-    // TODO: Send to queue for async processing
-    this.logger.log('Webhook received', { payload });
+  @Get('health')
+  health(): { status: string; service: string } {
+    return {
+      status: 'ok',
+      service: 'chatwoot-integration',
+    };
+  }
 
-    return { status: 'received' };
+  /**
+   * Test endpoint to simulate receiving a message
+   * NOT used in production (Lambda handles webhooks)
+   */
+  @Post('simulate')
+  async simulateMessage(@Body() payload: any): Promise<{ status: string }> {
+    this.logger.log('Test message received', {
+      event: payload.event,
+      conversationId: payload.conversation?.id,
+    });
+
+    // In production, this would be processed by QueueProcessor
+    // Here we just acknowledge receipt for testing
+
+    return {
+      status: 'simulated',
+      note: 'This is a test endpoint. Production uses Lambda → SQS → Worker',
+    };
   }
 }
