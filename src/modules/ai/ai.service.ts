@@ -73,14 +73,6 @@ export class AIService implements OnModuleInit {
   }
 
   /**
-   * Simple chat method for testing (bypasses guardrails)
-   * Use processMessage() for production with full validation
-   */
-  async chatSimple(message: string): Promise<string> {
-    return await this.chat(message);
-  }
-
-  /**
    * Internal chat method that calls the AI agent
    */
   private async chat(

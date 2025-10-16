@@ -18,7 +18,7 @@ export class ChatwootService {
     this.axiosInstance = axios.create({
       baseURL: apiUrl,
       headers: {
-        'api_access_token': apiKey,
+        api_access_token: apiKey,
         'Content-Type': 'application/json',
       },
       timeout: 10000, // 10 second timeout
@@ -34,7 +34,9 @@ export class ChatwootService {
     try {
       const endpoint = `/api/v1/accounts/${this.accountId}/conversations/${message.conversationId}/messages`;
 
-      this.logger.log(`Sending message to conversation ${message.conversationId}`);
+      this.logger.log(
+        `Sending message to conversation ${message.conversationId}`,
+      );
 
       const response = await this.axiosInstance.post(endpoint, {
         content: message.content,
