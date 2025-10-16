@@ -22,6 +22,38 @@ export interface MessageContext {
 }
 
 /**
+ * Simplified SQS message format sent by Lambda
+ * Lambda pre-processes Chatwoot webhooks and sends this simplified structure
+ */
+export interface SimplifiedSQSMessage {
+  messageId: string;
+  conversationId: string;
+  userText: string;
+  customerId: string;
+  accountId: string;
+}
+
+/**
+ * Helper function to convert simplified SQS message to IncomingMessage
+ * Used by QueueProcessor to standardize messages from SQS
+ */
+export function fromSimplifiedSQS(
+  payload: SimplifiedSQSMessage,
+): IncomingMessage {
+  return {
+    messageId: payload.messageId,
+    conversationId: payload.conversationId,
+    contactId: payload.customerId,
+    content: payload.userText,
+    timestamp: new Date(), // SQS message doesn't include timestamp, use current time
+    metadata: {
+      accountId: payload.accountId,
+      source: 'lambda-sqs',
+    },
+  };
+}
+
+/**
  * Helper function to convert Chatwoot webhook payload to IncomingMessage
  * Used by QueueProcessor to standardize messages from SQS
  */

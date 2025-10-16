@@ -1,14 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { QueueService } from './queue.service';
 import {
-  ChatwootWebhookPayload,
-  fromChatwootWebhook,
+  SimplifiedSQSMessage,
+  fromSimplifiedSQS,
 } from '../../common/interfaces';
-
-// TODO: Uncomment when implementing
-// import { AIService } from '../ai/ai.service';
-// import { ChatwootService } from '../integrations/chatwoot/chatwoot.service';
-// import { PersistenceService } from '../persistence/persistence.service';
+import { AIService } from '../ai/ai.service';
+import { ChatwootService } from '../integrations/chatwoot/chatwoot.service';
+import { PersistenceService } from '../persistence/persistence.service';
 
 @Injectable()
 export class QueueProcessor implements OnModuleInit {
@@ -17,22 +15,16 @@ export class QueueProcessor implements OnModuleInit {
 
   constructor(
     private readonly queueService: QueueService,
-    // TODO: Inject when implementing
-    // private readonly aiService: AIService,
-    // private readonly chatwootService: ChatwootService,
-    // private readonly persistenceService: PersistenceService,
+    private readonly aiService: AIService,
+    private readonly chatwootService: ChatwootService,
+    private readonly persistenceService: PersistenceService,
   ) {}
 
   async onModuleInit() {
     this.logger.log('Queue processor initialized');
 
     // Auto-start processing on module initialization
-    const workerEnabled = process.env.WORKER_ENABLED !== 'false';
-    if (workerEnabled) {
-      this.startProcessing();
-    } else {
-      this.logger.warn('Worker is disabled (WORKER_ENABLED=false)');
-    }
+    this.startProcessing();
   }
 
   /**
@@ -101,12 +93,12 @@ export class QueueProcessor implements OnModuleInit {
    */
   private async processMessage(sqsMessage: any): Promise<void> {
     const receiptHandle = sqsMessage.ReceiptHandle;
-    let payload: ChatwootWebhookPayload | null = null;
+    let payload: SimplifiedSQSMessage | null = null;
 
     try {
       // 1. Parse message body
       payload =
-        this.queueService.parseMessageBody<ChatwootWebhookPayload>(sqsMessage);
+        this.queueService.parseMessageBody<SimplifiedSQSMessage>(sqsMessage);
 
       if (!payload) {
         this.logger.error('Failed to parse message body');
@@ -115,49 +107,47 @@ export class QueueProcessor implements OnModuleInit {
         return;
       }
 
+      // Validate required fields
+      if (!payload.messageId || !payload.conversationId || !payload.userText) {
+        this.logger.error('Payload missing required fields', {
+          payloadKeys: Object.keys(payload),
+          payload: payload,
+        });
+        // Delete malformed message
+        await this.queueService.deleteMessage(receiptHandle);
+        return;
+      }
+
       this.logger.log(
-        `Processing message: ${payload.event} - Conv: ${payload.conversation.id}`,
+        `Processing message ${payload.messageId} from conversation ${payload.conversationId}`,
       );
 
-      // 2. Filter: Only process incoming messages
-      if (payload.message_type !== 'incoming') {
-        this.logger.debug(
-          `Skipping ${payload.message_type} message (not incoming)`,
-        );
-        await this.queueService.deleteMessage(receiptHandle);
-        return;
-      }
+      // 2. Convert to IncomingMessage
+      const incomingMessage = fromSimplifiedSQS(payload);
 
-      // 3. Filter: Only process message_created events
-      if (payload.event !== 'message_created') {
-        this.logger.debug(`Skipping ${payload.event} event`);
-        await this.queueService.deleteMessage(receiptHandle);
-        return;
-      }
+      // 3. Save incoming message to persistence (audit log)
+      await this.persistenceService.saveIncomingMessage(incomingMessage);
 
-      // 4. Convert to IncomingMessage
-      const incomingMessage = fromChatwootWebhook(payload);
+      // 4. Process with AI
+      this.logger.log('Processing with AI service');
+      const response = await this.aiService.processMessage(incomingMessage);
 
-      // 5. Process with AI (TODO: Implement)
-      this.logger.log('TODO: Process with AI service');
-      // const response = await this.aiService.processMessage(incomingMessage);
+      // 5. Send response to Chatwoot
+      this.logger.log('Sending response to Chatwoot');
+      const outgoingMessage = {
+        conversationId: incomingMessage.conversationId,
+        content: response,
+        messageType: 'text' as const,
+      };
+      await this.chatwootService.sendMessage(outgoingMessage);
 
-      // 6. Send response to Chatwoot (TODO: Implement)
-      this.logger.log('TODO: Send response to Chatwoot');
-      // await this.chatwootService.sendMessage({
-      //   conversationId: incomingMessage.conversationId,
-      //   content: response,
-      //   messageType: 'text'
-      // });
+      // 6. Save outgoing message to persistence (audit log)
+      await this.persistenceService.saveOutgoingMessage(outgoingMessage);
 
-      // 7. Save to persistence (TODO: Implement)
-      this.logger.log('TODO: Save to persistence');
-      // await this.persistenceService.saveIncomingMessage(incomingMessage);
-
-      // 8. Success! Delete message from queue
+      // 7. Success! Delete message from queue
       await this.queueService.deleteMessage(receiptHandle);
       this.logger.log(
-        `Successfully processed message ${payload.id} from conversation ${payload.conversation.id}`,
+        `Successfully processed message ${payload.messageId} from conversation ${payload.conversationId}`,
       );
     } catch (error) {
       this.logger.error('Error processing message', {
@@ -165,9 +155,8 @@ export class QueueProcessor implements OnModuleInit {
         stack: error.stack,
         payload: payload
           ? {
-              id: payload.id,
-              event: payload.event,
-              conversationId: payload.conversation?.id,
+              messageId: payload.messageId,
+              conversationId: payload.conversationId,
             }
           : 'unknown',
       });
