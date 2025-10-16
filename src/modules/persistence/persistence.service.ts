@@ -3,9 +3,10 @@ import { IncomingMessage, OutgoingMessage } from '../../common/interfaces';
 import { PrismaService } from './prisma.service';
 
 /**
- * PersistenceService handles saving messages and conversation data
- * to the database for auditing purposes only.
- * This data is NOT used as context for the AI agent.
+ * PersistenceService handles saving and retrieving messages and conversation data.
+ * This data serves dual purposes:
+ * 1. Audit trail for compliance and debugging
+ * 2. Source of truth for AI conversation history (stateless agent retrieves from DB)
  */
 @Injectable()
 export class PersistenceService {
@@ -104,12 +105,36 @@ export class PersistenceService {
   }
 
   /**
-   * Get messages by conversation ID (for auditing/debugging only)
+   * Get messages by conversation ID
+   * Returns all messages in chronological order for AI context
    */
   async getMessagesByConversation(conversationId: string): Promise<any[]> {
-    // TODO: Implement Prisma query
-    this.logger.log('Getting messages for conversation', { conversationId });
-    return [];
+    try {
+      const messages = await this.prisma.message.findMany({
+        where: { conversationId },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          content: true,
+          direction: true,
+          createdAt: true,
+        },
+      });
+
+      this.logger.log('Retrieved conversation history', {
+        conversationId,
+        messageCount: messages.length,
+      });
+
+      return messages;
+    } catch (error) {
+      this.logger.error('Failed to retrieve conversation history', {
+        error: error.message,
+        conversationId,
+      });
+      // Return empty array on error - allows conversation to continue without history
+      return [];
+    }
   }
 
   /**

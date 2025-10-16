@@ -1,9 +1,10 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
-import { Agent, run } from '@openai/agents';
+import { Agent, run, user } from '@openai/agents';
 import { AGENT_INSTRUCTIONS } from './prompts';
 import { IncomingMessage, MessageContext } from '../../common/interfaces';
 import { GuardrailsService } from '../guardrails/guardrails.service';
 import { OdooService } from '../integrations/odoo/odoo.service';
+import { PersistenceService } from '../persistence/persistence.service';
 
 @Injectable()
 export class AIService implements OnModuleInit {
@@ -13,6 +14,7 @@ export class AIService implements OnModuleInit {
   constructor(
     private readonly guardrailsService: GuardrailsService,
     private readonly odooService: OdooService,
+    private readonly persistenceService: PersistenceService,
   ) {}
 
   async onModuleInit() {
@@ -73,16 +75,65 @@ export class AIService implements OnModuleInit {
   }
 
   /**
-   * Internal chat method that calls the AI agent
+   * Convert database messages to OpenAI Agents SDK format
+   */
+  private convertToOpenAIFormat(messages: any[]): any[] {
+    return messages.map((msg) => {
+      if (msg.direction === 'incoming') {
+        // User message - use SDK helper
+        return user(msg.content);
+      } else {
+        // Assistant message - manual format
+        return {
+          role: 'assistant',
+          content: [
+            {
+              type: 'output_text',
+              text: msg.content,
+            },
+          ],
+        };
+      }
+    });
+  }
+
+  /**
+   * Internal chat method that calls the AI agent with conversation history
    */
   private async chat(
     message: string,
     context?: MessageContext,
   ): Promise<string> {
     try {
-      this.logger.log('Processing message with AI agent');
+      if (!context?.conversationId) {
+        throw new Error('conversationId is required for chat');
+      }
 
-      const response = await run(this.customerServiceAgent, message);
+      this.logger.log('Processing message with AI agent', {
+        conversationId: context.conversationId,
+      });
+
+      // 1. Retrieve conversation history from database
+      const dbMessages = await this.persistenceService.getMessagesByConversation(
+        context.conversationId,
+      );
+
+      // 2. Convert to OpenAI format
+      const history = this.convertToOpenAIFormat(dbMessages);
+
+      // 3. Append new user message
+      const messagesWithNewInput = [...history, user(message)];
+
+      this.logger.log('Conversation context', {
+        historyCount: history.length,
+        totalMessages: messagesWithNewInput.length,
+      });
+
+      // 4. Run agent with full conversation history (stateless)
+      const response = await run(
+        this.customerServiceAgent,
+        messagesWithNewInput,
+      );
       const output = response.finalOutput || 'No response generated';
 
       return output;
