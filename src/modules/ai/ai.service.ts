@@ -130,6 +130,7 @@ export class AIService implements OnModuleInit {
     const productTools = this.createMockProductTools();
 
     // Create specialist agents
+    // Note: No outputType - agents return plain text per prompt instructions
     const ordersAgent = new Agent({
       name: 'Orders Agent',
       instructions: ORDERS_PROMPT,
@@ -149,7 +150,8 @@ export class AIService implements OnModuleInit {
     });
 
     // Create triage agent (entry point)
-    this.triageAgent = Agent.create({
+    // All agents rely on prompt engineering for clean output format
+    this.triageAgent = new Agent({
       name: 'Triage Agent',
       instructions: TRIAGE_PROMPT,
       handoffs: [ordersAgent, productsAgent],
@@ -157,8 +159,9 @@ export class AIService implements OnModuleInit {
     });
 
     // Enable bidirectional handoffs
-    ordersAgent.handoffs = [this.triageAgent, productsAgent];
-    productsAgent.handoffs = [this.triageAgent, ordersAgent];
+    // Note: Using 'as any' due to SDK limitation with circular Agent type references
+    ordersAgent.handoffs = [this.triageAgent as any, productsAgent];
+    productsAgent.handoffs = [this.triageAgent as any, ordersAgent];
 
     this.logger.log(
       'Multi-agent system ready: Triage → [Orders Agent, Products Agent]',
@@ -250,6 +253,7 @@ export class AIService implements OnModuleInit {
 
       this.logger.log('Agent system completed successfully');
 
+      // finalOutput is plain string - agents follow prompt instructions for clean format
       return result.finalOutput || 'No response generated';
     } catch (error) {
       this.logger.error('Multi-agent error', error.stack);

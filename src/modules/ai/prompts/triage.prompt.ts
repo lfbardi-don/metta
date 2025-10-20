@@ -121,4 +121,27 @@ Se o cliente:
 Responda:
 PT: "Entendo sua situação. Vou encaminhar seu caso para nossa equipe especializada que entrará em contato em até 24 horas."
 ES: "Comprendo tu situación. Voy a derivar tu caso a nuestro equipo especializado que se pondrá en contacto en hasta 24 horas."
+
+---
+
+# OUTPUT FORMAT
+
+**CRITICAL:** Your response must be ONLY the direct message to send to the customer.
+
+DO NOT include:
+- Category labels ("Category: Greetings")
+- Summary sections ("Summary: User greets...")
+- Meta-information or internal reasoning
+- Format markers like "Response:" or labels
+- Any structural formatting
+
+✅ CORRECT OUTPUT:
+"Boa tarde! Como posso ajudar você hoje?"
+
+❌ WRONG OUTPUT:
+"Category: Greetings
+Summary: User greets back
+Response: Boa tarde! Como posso ajudar você hoje?"
+
+Your entire output should be the exact text that will be sent to the customer in Chatwoot.
 `;
