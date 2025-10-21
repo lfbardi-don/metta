@@ -11,6 +11,9 @@ importers:
       '@aws-sdk/client-sqs':
         specifier: ^3.911.0
         version: 3.911.0
+      '@fernandoslim/odoo-jsonrpc':
+        specifier: ^2.0.2
+        version: 2.0.2
       '@nestjs/common':
         specifier: ^11.0.1
         version: 11.1.6(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -487,6 +490,9 @@ packages:
   '@eslint/plugin-kit@0.4.0':
     resolution: {integrity: sha512-sB5uyeq+dwCWyPi31B2gQlVlo+j5brPlWx4yZBrEaRo/nhdDE8Xke1gsGgtiBdaBTxuTkceLVuVt/pclrasb0A==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@fernandoslim/odoo-jsonrpc@2.0.2':
+    resolution: {integrity: sha512-wWcr0LxcEOAt4Evx1aBVS6S9+p5D2yhRCnVxPANHuHmoOCzkw0LCgQ7G+8RaefE+reUbfu05ISfqoADq+88GFQ==}
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -4148,6 +4154,8 @@ snapshots:
     dependencies:
       '@eslint/core': 0.16.0
       levn: 0.4.1
+
+  '@fernandoslim/odoo-jsonrpc@2.0.2': {}
 
   '@humanfs/core@0.19.1': {}
 

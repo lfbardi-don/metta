@@ -78,7 +78,7 @@ AppModule
 
 **Guardrails are bidirectional**: Input validation before AI processing, output validation before sending to Chatwoot.
 
-**OdooService methods become AI tools**: Methods like `getProduct()`, `searchProducts()` are converted to tool definitions that the OpenAI agent can call. See `AIService.createOdooTools()` (TODO).
+**OdooService methods become AI tools**: Methods like `getProduct()`, `searchProducts()` are converted to tool definitions that the OpenAI agent can call. Tools are created using the `createAgentTool` helper in `src/common/helpers/create-agent-tool.helper.ts`.
 
 **Database is audit-only**: Messages saved to Neon PostgreSQL are for compliance/debugging, never retrieved as context for the AI agent.
 
@@ -88,15 +88,21 @@ AppModule
 
 ## Module Implementation Status
 
-All modules have boilerplate with method signatures. Services throw "Not implemented" errors.
+**Fully Implemented:**
+- ✅ **OdooService** - Complete JSON-RPC client with all methods exposed as AI tools
+- ✅ **AIService** - Multi-agent system with real Odoo tools integrated
+
+**Partially Implemented:**
+- ⚠️ **QueueModule** - Boilerplate exists, needs SQS testing
+- ⚠️ **ChatwootService** - Boilerplate exists, needs axios implementation
+- ⚠️ **GuardrailsService** - Boilerplate exists, needs validation logic
+- ⚠️ **PersistenceService** - Boilerplate exists, needs Prisma implementation
 
 **Implementation priority:**
 1. **QueueModule** ⭐ - Test SQS connection, verify auto-start, log received messages
 2. ChatwootService - Implement sendMessage() with axios
-3. AIModule - Test agent without tools first
-4. GuardrailsModule - PII detection, toxicity, prompt injection
-5. OdooService - XML-RPC client + convert to tools
-6. PersistenceModule - Prisma migrations + save methods
+3. GuardrailsModule - PII detection, toxicity, prompt injection
+4. PersistenceModule - Prisma migrations + save methods
 
 ## Shared Interfaces
 
@@ -109,27 +115,39 @@ All type contracts in `src/common/interfaces/`:
 
 ## OpenAI Agents SDK Usage
 
-Uses `@openai/agents` v0.1.9 (NOT the OpenAI API directly). Tools defined as:
+Uses `@openai/agents` v0.1.10 (NOT the OpenAI API directly). Tools are created using the `createAgentTool` helper with Zod v4 schemas:
 
 ```typescript
-{
-  type: 'function',
-  function: {
-    name: 'getProduct',
-    description: 'Get product details from Odoo by product ID',
-    parameters: {
-      type: 'object',
-      properties: {
-        productId: { type: 'number', description: 'The Odoo product ID' }
-      },
-      required: ['productId']
-    },
-    function: async (args) => await odooService.getProduct(args.productId)
+import { createAgentTool } from '../common/helpers/create-agent-tool.helper';
+import { z } from 'zod';
+
+const getProductTool = createAgentTool({
+  name: 'get_product',
+  description: 'Get product details from Odoo by product ID',
+  parameters: z.object({
+    productId: z.number().int().positive().describe('The Odoo product ID')
+  }),
+  execute: async (params, context) => {
+    const { odooService } = context.services;
+    const product = await odooService.getProduct(params.productId);
+    return product;
   }
-}
+});
 ```
 
-Register tools during agent initialization in `AIService.onModuleInit()`.
+**Tool Format Requirements:**
+- Use `createAgentTool()` helper from `src/common/helpers/create-agent-tool.helper.ts`
+- Use Zod v4 schemas for parameter validation (NOT JSON Schema directly)
+- Zod v4 has native JSON Schema conversion via `z.toJSONSchema()` - no third-party library needed
+- `execute` function receives validated params and AgentContext (with access to services)
+- Return data directly (not JSON stringified) - helper handles response formatting
+- Tool names use snake_case convention (e.g., `get_product`, `search_products`)
+
+**Current Implementation:**
+- Real Odoo tools implemented in `src/modules/ai/tools/odoo/`
+- Tools are exported via `src/modules/ai/tools/index.ts`
+- Tools automatically assigned to specialist agents in `AIService.onModuleInit()`
+- See individual tool files for complete implementations
 
 ## Environment Setup
 
@@ -163,7 +181,7 @@ Copy `.env.example` to `.env` and configure:
 
 **ChatwootController is optional:** Routes are `/test/chatwoot/health` and `/test/chatwoot/simulate`. NOT used in production (Lambda handles webhooks).
 
-**Creating Odoo tools:** Each OdooService method needs (1) tool name, (2) description for AI, (3) JSON schema for parameters, (4) function wrapper calling the service method.
+**Creating Odoo tools:** Use the `createAgentTool` helper with (1) tool name (snake_case), (2) description for AI, (3) Zod schema for parameters, (4) execute function that receives params and context. See `src/modules/ai/tools/odoo/` for examples.
 
 **Guardrail validators:** Each returns `GuardrailCheck` with `type`, `passed`, optional `message`, and optional `score`.
 

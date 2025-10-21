@@ -1,11 +1,15 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
-import { Agent, run, user, tool, assistant } from '@openai/agents';
-import { z } from 'zod';
+import { Agent, run, user, assistant } from '@openai/agents';
 import { TRIAGE_PROMPT, ORDERS_PROMPT, PRODUCTS_PROMPT } from './prompts';
-import { IncomingMessage, MessageContext } from '../../common/interfaces';
+import {
+  IncomingMessage,
+  MessageContext,
+  AgentContext,
+} from '../../common/interfaces';
 import { GuardrailsService } from '../guardrails/guardrails.service';
 import { OdooService } from '../integrations/odoo/odoo.service';
 import { PersistenceService } from '../persistence/persistence.service';
+import { getProductTools, getOrderTools } from './tools/odoo-tools';
 
 @Injectable()
 export class AIService implements OnModuleInit {
@@ -18,116 +22,15 @@ export class AIService implements OnModuleInit {
     private readonly persistenceService: PersistenceService,
   ) { }
 
-  /**
-   * Create mock order tools for testing handoffs
-   * TODO: Replace with real Odoo tools when integration is ready
-   */
-  private createMockOrderTools() {
-    const getOrderTool = tool({
-      name: 'get_order',
-      description:
-        'Get order details and tracking by order number. Returns status, items, delivery info.',
-      parameters: z.object({
-        orderNumber: z
-          .string()
-          .describe('The order number (e.g., SO001234)'),
-      }),
-      execute: async (input) => {
-        this.logger.log(`[MOCK] Getting order: ${input.orderNumber}`);
-        // Mock data - replace with real OdooService call later
-        return JSON.stringify({
-          id: 123,
-          orderNumber: input.orderNumber,
-          status: 'Em trânsito',
-          items: [
-            {
-              productId: 1,
-              productName: 'Produto Teste',
-              quantity: 2,
-              price: 99.9,
-            },
-          ],
-          total: 199.8,
-          customer: { name: 'Cliente Teste', email: 'test@example.com' },
-          createdAt: new Date().toISOString(),
-        });
-      },
-    });
-
-    const getOrdersByCustomerTool = tool({
-      name: 'get_orders_by_customer',
-      description:
-        'Get all orders for a customer by email address. Returns order history.',
-      parameters: z.object({
-        email: z.string().email().describe('Customer email address'),
-      }),
-      execute: async (input) => {
-        this.logger.log(
-          `[MOCK] Getting orders for customer: ${input.email}`,
-        );
-        // Mock data - return array of orders
-        return JSON.stringify([
-          { orderNumber: 'SO001', status: 'Entregue', total: 150.0 },
-          { orderNumber: 'SO002', status: 'Em processamento', total: 200.0 },
-        ]);
-      },
-    });
-
-    return [getOrderTool, getOrdersByCustomerTool];
-  }
-
-  /**
-   * Create mock product tools for testing handoffs
-   * TODO: Replace with real Odoo tools when integration is ready
-   */
-  private createMockProductTools() {
-    const getProductTool = tool({
-      name: 'get_product',
-      description:
-        'Get product details by product ID. Returns name, price, stock, description.',
-      parameters: z.object({
-        productId: z.number().int().describe('Product ID'),
-      }),
-      execute: async (input) => {
-        this.logger.log(`[MOCK] Getting product: ${input.productId}`);
-        // Mock data
-        return JSON.stringify({
-          id: input.productId,
-          name: 'Produto Exemplo',
-          price: 199.9,
-          stock: 45,
-          description: 'Descrição do produto teste',
-          category: 'Eletrônicos',
-        });
-      },
-    });
-
-    const searchProductsTool = tool({
-      name: 'search_products',
-      description:
-        'Search products by keyword. Returns list of matching products with prices and availability.',
-      parameters: z.object({
-        query: z.string().min(2).describe('Product name or search keyword'),
-      }),
-      execute: async (input) => {
-        this.logger.log(`[MOCK] Searching products: ${input.query}`);
-        // Mock data - return array
-        return JSON.stringify([
-          { id: 1, name: `${input.query} Premium`, price: 299.9, stock: 10 },
-          { id: 2, name: `${input.query} Básico`, price: 149.9, stock: 25 },
-        ]);
-      },
-    });
-
-    return [getProductTool, searchProductsTool];
-  }
-
   async onModuleInit() {
     this.logger.log('Initializing multi-agent system with handoffs...');
 
-    // Create mock tools (will be replaced with real Odoo tools later)
-    const orderTools = this.createMockOrderTools();
-    const productTools = this.createMockProductTools();
+    // Get tools using new tool creation pattern
+    const orderTools = getOrderTools();
+    const productTools = getProductTools();
+
+    this.logger.log(`Assigned ${orderTools.length} tools to Orders Agent`);
+    this.logger.log(`Assigned ${productTools.length} tools to Products Agent`);
 
     // Create specialist agents
     // Note: No outputType - agents return plain text per prompt instructions
@@ -215,7 +118,9 @@ export class AIService implements OnModuleInit {
    * Convert database messages to OpenAI Agents SDK format
    */
   private convertToOpenAIFormat(messages: any[]): any[] {
-    return messages.map((msg) => msg.direction === 'incoming' ? user(msg.content) : assistant(msg.content));
+    return messages.map((msg) =>
+      msg.direction === 'incoming' ? user(msg.content) : assistant(msg.content),
+    );
   }
 
   /**
@@ -249,7 +154,21 @@ export class AIService implements OnModuleInit {
         totalMessages: messagesWithNewInput.length,
       });
 
-      const result = await run(this.triageAgent, messagesWithNewInput);
+      // Create agent context with services
+      const agentContext: AgentContext = {
+        conversationId: context.conversationId,
+        contactId: context.contactId,
+        services: {
+          odooService: this.odooService,
+          logger: this.logger,
+        },
+        metadata: context.metadata,
+      };
+
+      // Run agent with context for tool injection
+      const result = await run(this.triageAgent, messagesWithNewInput, {
+        context: agentContext,
+      });
 
       this.logger.log('Agent system completed successfully');
 
@@ -261,33 +180,4 @@ export class AIService implements OnModuleInit {
     }
   }
 
-  /**
-   * Create tools from OdooService methods
-   * These tools will be available to the AI agent
-   */
-  private createOdooTools(): any[] {
-    // TODO: Implement tool creation
-    // Convert OdooService methods into @openai/agents tool format
-    // Each tool should have: name, description, parameters schema, and function
-
-    /*
-    Example tool structure:
-    {
-      name: 'getProduct',
-      description: 'Get product details from Odoo by product ID',
-      parameters: {
-        type: 'object',
-        properties: {
-          productId: { type: 'number', description: 'Product ID' }
-        },
-        required: ['productId']
-      },
-      function: async (params) => {
-        return await this.odooService.getProduct(params.productId);
-      }
-    }
-    */
-
-    return [];
-  }
 }
