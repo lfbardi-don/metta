@@ -95,8 +95,15 @@ export class AIService implements OnModuleInit {
       throw new Error('Message blocked by guardrails');
     }
 
+    // Use sanitized content if PII was detected and masked
+    const contentToProcess = inputValidation.sanitizedContent ?? message.content;
+
+    if (inputValidation.sanitizedContent) {
+      this.logger.log('Using sanitized input (PII masked)');
+    }
+
     // 2. Process with AI agent
-    const response = await this.chat(message.content, context);
+    const response = await this.chat(contentToProcess, context);
 
     // 3. Validate output with guardrails
     const outputValidation = await this.guardrailsService.validateOutput(
@@ -111,7 +118,14 @@ export class AIService implements OnModuleInit {
       throw new Error('Response blocked by guardrails');
     }
 
-    return response;
+    // Use sanitized output if PII was detected and masked
+    const finalResponse = outputValidation.sanitizedContent ?? response;
+
+    if (outputValidation.sanitizedContent) {
+      this.logger.log('Using sanitized output (PII masked)');
+    }
+
+    return finalResponse;
   }
 
   /**

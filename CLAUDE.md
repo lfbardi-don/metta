@@ -91,18 +91,18 @@ AppModule
 **Fully Implemented:**
 - ✅ **OdooService** - Complete JSON-RPC client with all methods exposed as AI tools
 - ✅ **AIService** - Multi-agent system with real Odoo tools integrated
+- ✅ **GuardrailsService** - Full validation with PII detection, prompt injection detection, OpenAI Moderation API integration
+- ✅ **QueueService** - Complete SQS integration with polling, message handling, and graceful shutdown
+- ✅ **QueueProcessor** - Full message processing pipeline with guardrails and AI integration
+- ✅ **PersistenceService** - Core message persistence (save/get messages) fully implemented
+- ✅ **ChatwootService** - Core sendMessage() method fully implemented
 
-**Partially Implemented:**
-- ⚠️ **QueueModule** - Boilerplate exists, needs SQS testing
-- ⚠️ **ChatwootService** - Boilerplate exists, needs axios implementation
-- ⚠️ **GuardrailsService** - Boilerplate exists, needs validation logic
-- ⚠️ **PersistenceService** - Boilerplate exists, needs Prisma implementation
+**Optional Enhancements (Non-blocking):**
+- ⚠️ **ChatwootService** - Additional methods (getConversation, markAsRead, updateStatus) are stubbed
+- ⚠️ **PersistenceService** - Metadata methods (saveConversationMetadata, getConversationMetadata) are stubbed
+- ⚠️ **QueueProcessor** - Explicit retry counter/DLQ integration (currently relies on SQS visibility timeout)
 
-**Implementation priority:**
-1. **QueueModule** ⭐ - Test SQS connection, verify auto-start, log received messages
-2. ChatwootService - Implement sendMessage() with axios
-3. GuardrailsModule - PII detection, toxicity, prompt injection
-4. PersistenceModule - Prisma migrations + save methods
+**Production Ready:** All core functionality is complete. The worker can process messages end-to-end with full guardrails protection.
 
 ## Shared Interfaces
 
@@ -184,6 +184,15 @@ Copy `.env.example` to `.env` and configure:
 **Creating Odoo tools:** Use the `createAgentTool` helper with (1) tool name (snake_case), (2) description for AI, (3) Zod schema for parameters, (4) execute function that receives params and context. See `src/modules/ai/tools/odoo/` for examples.
 
 **Guardrail validators:** Each returns `GuardrailCheck` with `type`, `passed`, optional `message`, and optional `score`.
+
+**GuardrailsService implementation details:**
+- **PII Detection (Moderate Mode):** Automatically detects and sanitizes emails, phone numbers, credit cards (with Luhn validation), and SSNs. Returns `sanitizedContent` with placeholders like `[EMAIL]`, `[PHONE]`, `[CREDIT_CARD]`, `[SSN]`. Always passes validation (sanitizes instead of blocking).
+- **Prompt Injection Detection:** Pattern-based detection for jailbreak attempts, role confusion, system prompt manipulation, and instruction overrides. Blocks messages that match injection patterns.
+- **Toxicity Check:** Uses OpenAI Moderation API to detect harassment, hate speech, violence, sexual content, etc. Configurable timeout (default 5s) with graceful fallback behavior (warn or block on API failure).
+- **Business Rules:** Enforces max input length (10,000 chars) and max output length (5,000 chars).
+- **AIService Integration:** `processMessage()` uses `sanitizedContent` from input validation before sending to AI, and uses `sanitizedContent` from output validation before returning response.
+- **Configuration:** All checks can be individually enabled/disabled via environment variables (`GUARDRAILS_ENABLE_PII_CHECK`, `GUARDRAILS_ENABLE_TOXICITY_CHECK`, `GUARDRAILS_ENABLE_INJECTION_CHECK`, `GUARDRAILS_ENABLE_BUSINESS_RULES`).
+- **Testing:** Comprehensive unit tests in `guardrails.service.spec.ts` covering PII detection, prompt injection, moderation API integration, business rules, and sanitization.
 
 See `ARCHITECTURE.md` for detailed module responsibilities and `PROJECT_STRUCTURE.md` for complete file structure.
 
