@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { GuardrailsService } from './guardrails.service';
+import { ProfessionalToneGuardrail } from './professional-tone.guardrail';
+import { ResponseRelevanceGuardrail } from './response-relevance.guardrail';
 import { MessageContext } from '../../common/interfaces';
 import OpenAI from 'openai';
 
@@ -37,6 +39,9 @@ describe('GuardrailsService', () => {
           GUARDRAILS_ENABLE_TOXICITY_CHECK: true,
           GUARDRAILS_ENABLE_INJECTION_CHECK: true,
           GUARDRAILS_ENABLE_BUSINESS_RULES: true,
+          GUARDRAILS_ENABLE_TONE_CHECK: false, // Disable LLM checks in existing tests
+          GUARDRAILS_ENABLE_RELEVANCE_CHECK: false, // Disable LLM checks in existing tests
+          GUARDRAILS_LLM_TIMEOUT: 5000,
           OPENAI_MODERATION_TIMEOUT: 5000,
           GUARDRAILS_MODERATION_FALLBACK: 'warn',
         };
@@ -47,6 +52,8 @@ describe('GuardrailsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GuardrailsService,
+        ProfessionalToneGuardrail,
+        ResponseRelevanceGuardrail,
         {
           provide: ConfigService,
           useValue: mockConfigService,
@@ -77,8 +84,10 @@ describe('GuardrailsService', () => {
       const result = await service.validateInput(message, mockContext);
 
       expect(result.sanitizedContent).toBeDefined();
-      expect(result.sanitizedContent).toContain('[EMAIL]');
+      expect(result.sanitizedContent).toContain('[EMAIL_1]');
       expect(result.sanitizedContent).not.toContain('john.doe@example.com');
+      expect(result.piiMetadata).toBeDefined();
+      expect(result.piiMetadata['[EMAIL_1]']).toBe('john.doe@example.com');
       expect(result.checks.find((c) => c.type === 'pii')?.passed).toBe(true);
     });
 
@@ -95,7 +104,7 @@ describe('GuardrailsService', () => {
         const result = await service.validateInput(message, mockContext);
 
         expect(result.sanitizedContent).toBeDefined();
-        expect(result.sanitizedContent).toContain('[PHONE]');
+        expect(result.sanitizedContent).toContain('[PHONE_1]');
         expect(result.sanitizedContent).not.toContain(phone);
       }
     });
@@ -113,9 +122,53 @@ describe('GuardrailsService', () => {
         const result = await service.validateInput(message, mockContext);
 
         expect(result.sanitizedContent).toBeDefined();
-        expect(result.sanitizedContent).toContain('[CREDIT_CARD]');
+        expect(result.sanitizedContent).toContain('[CREDIT_CARD_1]');
         expect(result.sanitizedContent).not.toContain(card);
       }
+    });
+
+    it('should detect DNI (Argentina) numbers', async () => {
+      const testCases = [
+        '12.345.678', // With dots
+        '12345678',   // Without dots
+        '1.234.567',  // 7 digits
+      ];
+
+      for (const dni of testCases) {
+        const message = `My DNI is ${dni}`;
+        const result = await service.validateInput(message, mockContext);
+
+        expect(result.sanitizedContent).toBeDefined();
+        expect(result.sanitizedContent).toContain('[DNI');
+        expect(result.sanitizedContent).not.toContain(dni);
+        expect(result.piiMetadata).toBeDefined();
+      }
+    });
+
+    it('should extract PII metadata with indexed placeholders', async () => {
+      const message = 'My email is john@example.com and DNI is 12.345.678';
+      const result = await service.validateInput(message, mockContext);
+
+      expect(result.sanitizedContent).toBeDefined();
+      expect(result.sanitizedContent).toContain('[EMAIL_1]');
+      expect(result.sanitizedContent).toContain('[DNI_1]');
+      expect(result.sanitizedContent).not.toContain('john@example.com');
+      expect(result.sanitizedContent).not.toContain('12.345.678');
+
+      expect(result.piiMetadata).toBeDefined();
+      expect(result.piiMetadata['[EMAIL_1]']).toBe('john@example.com');
+      expect(result.piiMetadata['[DNI_1]']).toBe('12.345.678');
+    });
+
+    it('should handle multiple PIIs of same type with indexed placeholders', async () => {
+      const message = 'Contact john@example.com or jane@example.com';
+      const result = await service.validateInput(message, mockContext);
+
+      expect(result.sanitizedContent).toContain('[EMAIL_1]');
+      expect(result.sanitizedContent).toContain('[EMAIL_2]');
+      // Note: Replacements happen from end to start, so order is reversed
+      expect(result.piiMetadata['[EMAIL_1]']).toBe('jane@example.com');
+      expect(result.piiMetadata['[EMAIL_2]']).toBe('john@example.com');
     });
 
     it('should NOT detect invalid credit card numbers', async () => {
@@ -135,7 +188,7 @@ describe('GuardrailsService', () => {
         const result = await service.validateInput(message, mockContext);
 
         expect(result.sanitizedContent).toBeDefined();
-        expect(result.sanitizedContent).toContain('[SSN]');
+        expect(result.sanitizedContent).toContain('[SSN_1]');
         expect(result.sanitizedContent).not.toContain(ssn);
       }
     });
@@ -146,9 +199,9 @@ describe('GuardrailsService', () => {
       const result = await service.validateInput(message, mockContext);
 
       expect(result.sanitizedContent).toBeDefined();
-      expect(result.sanitizedContent).toContain('[EMAIL]');
-      expect(result.sanitizedContent).toContain('[PHONE]');
-      expect(result.sanitizedContent).toContain('[SSN]');
+      expect(result.sanitizedContent).toContain('[EMAIL_1]');
+      expect(result.sanitizedContent).toContain('[PHONE_1]');
+      expect(result.sanitizedContent).toContain('[SSN_1]');
       expect(result.sanitizedContent).not.toContain('john@example.com');
       expect(result.sanitizedContent).not.toContain('555-123-4567');
       expect(result.sanitizedContent).not.toContain('123-45-6789');
@@ -420,9 +473,9 @@ describe('GuardrailsService', () => {
         'Contact john@example.com or call 555-123-4567. Card: 4532015112830366';
       const sanitized = await service.sanitize(content);
 
-      expect(sanitized).toContain('[EMAIL]');
-      expect(sanitized).toContain('[PHONE]');
-      expect(sanitized).toContain('[CREDIT_CARD]');
+      expect(sanitized).toContain('[EMAIL_1]');
+      expect(sanitized).toContain('[PHONE_1]');
+      expect(sanitized).toContain('[CREDIT_CARD_1]');
       expect(sanitized).not.toContain('john@example.com');
       expect(sanitized).not.toContain('555-123-4567');
       expect(sanitized).not.toContain('4532015112830366');
@@ -449,7 +502,7 @@ describe('GuardrailsService', () => {
 
       expect(result.allowed).toBe(true);
       expect(result.sanitizedContent).toBeDefined();
-      expect(result.sanitizedContent).toContain('[EMAIL]');
+      expect(result.sanitizedContent).toContain('[EMAIL_1]');
       expect(result.sanitizedContent).not.toContain('support@company.com');
     });
 
@@ -485,9 +538,9 @@ describe('GuardrailsService', () => {
 
       expect(result.allowed).toBe(true);
       expect(result.sanitizedContent).toBeDefined();
-      expect(result.sanitizedContent).toContain('[EMAIL]');
+      expect(result.sanitizedContent).toContain('[EMAIL_1]');
       expect(result.sanitizedContent).toContain('order #123');
-      expect(result.checks.every((c) => c.passed)).toBe(true);
+      expect(result.checks.every((c)=> c.passed)).toBe(true);
     });
 
     it('should block message with multiple violations', async () => {

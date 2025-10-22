@@ -7,6 +7,7 @@ import {
   AgentContext,
 } from '../../common/interfaces';
 import { GuardrailsService } from '../guardrails/guardrails.service';
+import { getGuardrailFallbackMessage } from '../guardrails/guardrail-messages.constant';
 import { OdooService } from '../integrations/odoo/odoo.service';
 import { PersistenceService } from '../persistence/persistence.service';
 import { getProductTools, getOrderTools } from './tools/odoo-tools';
@@ -82,6 +83,25 @@ export class AIService implements OnModuleInit {
       metadata: message.metadata,
     };
 
+    // Load conversation history for context-aware guardrails
+    const dbMessages =
+      await this.persistenceService.getMessagesByConversation(
+        context.conversationId,
+      );
+
+    // Extract last 4 messages for relevance validation
+    // Using ORIGINAL content (not sanitized) so LLM can understand context
+    if (dbMessages.length > 0) {
+      context.conversationHistory = dbMessages.slice(-4).map((msg) => ({
+        role: msg.direction === 'incoming' ? 'user' : 'assistant',
+        content: msg.content,
+      }));
+
+      this.logger.log(
+        `Loaded ${context.conversationHistory.length} message(s) for context`,
+      );
+    }
+
     // 1. Validate input with guardrails
     const inputValidation = await this.guardrailsService.validateInput(
       message.content,
@@ -89,33 +109,57 @@ export class AIService implements OnModuleInit {
     );
 
     if (!inputValidation.allowed) {
-      this.logger.warn('Input validation failed', {
-        checks: inputValidation.checks,
+      this.logger.warn('Input validation failed - returning fallback message', {
+        conversationId: context.conversationId,
+        failedChecks: inputValidation.checks
+          .filter((c) => !c.passed)
+          .map((c) => c.type),
       });
-      throw new Error('Message blocked by guardrails');
+
+      const fallbackMessage = getGuardrailFallbackMessage(
+        'input',
+        inputValidation.checks,
+      );
+      return fallbackMessage;
     }
 
     // Use sanitized content if PII was detected and masked
     const contentToProcess = inputValidation.sanitizedContent ?? message.content;
 
     if (inputValidation.sanitizedContent) {
-      this.logger.log('Using sanitized input (PII masked)');
+      this.logger.log('Using sanitized input (PII masked with placeholders)');
     }
 
-    // 2. Process with AI agent
-    const response = await this.chat(contentToProcess, context);
+    // Add PII metadata to context for tool placeholder resolution
+    if (inputValidation.piiMetadata) {
+      context.piiMetadata = inputValidation.piiMetadata;
+      this.logger.log(
+        `PII metadata available: ${Object.keys(inputValidation.piiMetadata).length} placeholder(s)`,
+      );
+    }
 
-    // 3. Validate output with guardrails
+    // 2. Process with AI agent (pass dbMessages to avoid re-fetching)
+    const response = await this.chat(contentToProcess, context, dbMessages);
+
+    // 3. Validate output with guardrails (context includes conversationHistory)
     const outputValidation = await this.guardrailsService.validateOutput(
       response,
       context,
     );
 
     if (!outputValidation.allowed) {
-      this.logger.warn('Output validation failed', {
-        checks: outputValidation.checks,
+      this.logger.warn('Output validation failed - returning fallback message', {
+        conversationId: context.conversationId,
+        failedChecks: outputValidation.checks
+          .filter((c) => !c.passed)
+          .map((c) => c.type),
       });
-      throw new Error('Response blocked by guardrails');
+
+      const fallbackMessage = getGuardrailFallbackMessage(
+        'output',
+        outputValidation.checks,
+      );
+      return fallbackMessage;
     }
 
     // Use sanitized output if PII was detected and masked
@@ -144,6 +188,7 @@ export class AIService implements OnModuleInit {
   private async chat(
     message: string,
     context?: MessageContext,
+    dbMessages?: any[],
   ): Promise<string> {
     try {
       if (!context?.conversationId) {
@@ -154,12 +199,14 @@ export class AIService implements OnModuleInit {
         conversationId: context.conversationId,
       });
 
-      const dbMessages =
-        await this.persistenceService.getMessagesByConversation(
+      // Use provided messages or fetch them if not provided
+      const messages =
+        dbMessages ??
+        (await this.persistenceService.getMessagesByConversation(
           context.conversationId,
-        );
+        ));
 
-      const history = this.convertToOpenAIFormat(dbMessages);
+      const history = this.convertToOpenAIFormat(messages);
 
       const messagesWithNewInput = [...history, user(message)];
 
@@ -168,7 +215,7 @@ export class AIService implements OnModuleInit {
         totalMessages: messagesWithNewInput.length,
       });
 
-      // Create agent context with services
+      // Create agent context with services and PII metadata
       const agentContext: AgentContext = {
         conversationId: context.conversationId,
         contactId: context.contactId,
@@ -177,6 +224,7 @@ export class AIService implements OnModuleInit {
           logger: this.logger,
         },
         metadata: context.metadata,
+        piiMetadata: context.piiMetadata, // Pass PII metadata for tool resolution
       };
 
       // Run agent with context for tool injection

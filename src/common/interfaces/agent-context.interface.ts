@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { OdooService } from '../../modules/integrations/odoo/odoo.service';
+import { PIIMetadata } from './guardrail.interface';
 
 /**
  * Context passed to all agent tools via the execute function
@@ -35,4 +36,11 @@ export interface AgentContext {
    * Optional metadata for the request
    */
   metadata?: Record<string, any>;
+
+  /**
+   * PII metadata extracted from user input
+   * Maps placeholders (e.g., "[EMAIL_1]") to real values
+   * Used internally by tool helper to resolve placeholders before execution
+   */
+  piiMetadata?: PIIMetadata;
 }

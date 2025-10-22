@@ -186,13 +186,25 @@ Copy `.env.example` to `.env` and configure:
 **Guardrail validators:** Each returns `GuardrailCheck` with `type`, `passed`, optional `message`, and optional `score`.
 
 **GuardrailsService implementation details:**
-- **PII Detection (Moderate Mode):** Automatically detects and sanitizes emails, phone numbers, credit cards (with Luhn validation), and SSNs. Returns `sanitizedContent` with placeholders like `[EMAIL]`, `[PHONE]`, `[CREDIT_CARD]`, `[SSN]`. Always passes validation (sanitizes instead of blocking).
+- **PII Detection with Metadata Extraction:** Automatically detects emails, phone numbers, credit cards (with Luhn validation), SSNs, and DNI (Argentina). Uses indexed placeholders (`[EMAIL_1]`, `[DNI_1]`, etc.) in conversation while storing real values in metadata. This allows:
+  - AI sees sanitized conversation text
+  - Tools automatically receive real values (resolved before execution via `create-agent-tool` helper)
+  - Output checked for leaks and re-sanitized before sending to user
+  - **Critical for customer service:** Enables tools like `get_customer_orders(email)` to work while keeping conversation secure
 - **Prompt Injection Detection:** Pattern-based detection for jailbreak attempts, role confusion, system prompt manipulation, and instruction overrides. Blocks messages that match injection patterns.
-- **Toxicity Check:** Uses OpenAI Moderation API to detect harassment, hate speech, violence, sexual content, etc. Configurable timeout (default 5s) with graceful fallback behavior (warn or block on API failure).
+- **Toxicity Check:** Uses OpenAI Moderation API (free) to detect harassment, hate speech, violence, sexual content, etc. Configurable timeout (default 5s) with graceful fallback behavior (warn or block on API failure).
 - **Business Rules:** Enforces max input length (10,000 chars) and max output length (5,000 chars).
-- **AIService Integration:** `processMessage()` uses `sanitizedContent` from input validation before sending to AI, and uses `sanitizedContent` from output validation before returning response.
-- **Configuration:** All checks can be individually enabled/disabled via environment variables (`GUARDRAILS_ENABLE_PII_CHECK`, `GUARDRAILS_ENABLE_TOXICITY_CHECK`, `GUARDRAILS_ENABLE_INJECTION_CHECK`, `GUARDRAILS_ENABLE_BUSINESS_RULES`).
-- **Testing:** Comprehensive unit tests in `guardrails.service.spec.ts` covering PII detection, prompt injection, moderation API integration, business rules, and sanitization.
+- **Professional Tone Check (LLM-based):** Uses gpt-4o-mini to validate AI responses are professional, courteous, and appropriate for customer service. Cost: ~$0.0002/check, Latency: ~200-500ms. Graceful degradation on errors.
+- **Response Relevance Check (LLM-based):** Uses gpt-4o-mini to ensure AI responses directly address user's question. Requires user message context. Cost: ~$0.0002/check, Latency: ~200-500ms. Graceful degradation on errors.
+- **Parallel Execution:** LLM-based guardrails run in parallel using `Promise.all()` to minimize latency impact.
+- **PII Metadata Flow:**
+  1. `GuardrailsService.validateInput()` extracts PII → returns `{ sanitizedContent, piiMetadata }`
+  2. `AIService` passes metadata to agent context
+  3. `create-agent-tool` helper automatically resolves placeholders before tool execution
+  4. `GuardrailsService.validateOutput()` checks for PII leaks and re-sanitizes
+- **AIService Integration:** `processMessage()` uses `sanitizedContent` from input validation before sending to AI, stores PII metadata in context for tool resolution, passes original user message to output validation for relevance checking, and uses `sanitizedContent` from output validation before returning response.
+- **Configuration:** All checks can be individually enabled/disabled via environment variables (`GUARDRAILS_ENABLE_PII_CHECK`, `GUARDRAILS_ENABLE_TOXICITY_CHECK`, `GUARDRAILS_ENABLE_INJECTION_CHECK`, `GUARDRAILS_ENABLE_BUSINESS_RULES`, `GUARDRAILS_ENABLE_TONE_CHECK`, `GUARDRAILS_ENABLE_RELEVANCE_CHECK`).
+- **Testing:** Comprehensive unit tests in `guardrails.service.spec.ts` covering PII detection, DNI detection, metadata extraction, indexed placeholders, prompt injection, moderation API integration, business rules, and sanitization. Additional tests for LLM-based guardrails in `professional-tone.guardrail.spec.ts` and `response-relevance.guardrail.spec.ts`.
 
 See `ARCHITECTURE.md` for detailed module responsibilities and `PROJECT_STRUCTURE.md` for complete file structure.
 

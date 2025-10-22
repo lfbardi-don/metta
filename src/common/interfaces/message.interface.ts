@@ -1,4 +1,5 @@
 import { ChatwootWebhookPayload } from './chatwoot-webhook.interface';
+import { PIIMetadata } from './guardrail.interface';
 
 export interface IncomingMessage {
   messageId: string;
@@ -19,6 +20,21 @@ export interface MessageContext {
   conversationId: string;
   contactId: string;
   metadata: Record<string, any>;
+  /**
+   * PII metadata extracted from user message
+   * Maps placeholders (e.g., "[EMAIL_1]") to real values
+   * Used to resolve placeholders in tool calls
+   */
+  piiMetadata?: PIIMetadata;
+  /**
+   * Recent conversation history for context-aware guardrails
+   * Contains the last N messages (typically 4) in chronological order
+   * Used by ResponseRelevanceGuardrail to validate responses in context
+   */
+  conversationHistory?: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+  }>;
 }
 
 /**

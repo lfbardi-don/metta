@@ -5,13 +5,16 @@ import {
   GuardrailResult,
   GuardrailCheck,
   MessageContext,
+  PIIMetadata,
 } from '../../common/interfaces';
+import { ProfessionalToneGuardrail } from './professional-tone.guardrail';
+import { ResponseRelevanceGuardrail } from './response-relevance.guardrail';
 
 /**
  * PII Detection result
  */
 interface PIIMatch {
-  type: 'email' | 'phone' | 'credit_card' | 'ssn';
+  type: 'email' | 'phone' | 'credit_card' | 'ssn' | 'dni';
   value: string;
   start: number;
   end: number;
@@ -36,6 +39,8 @@ export class GuardrailsService {
   private readonly toxicityCheckEnabled: boolean;
   private readonly injectionCheckEnabled: boolean;
   private readonly businessRulesEnabled: boolean;
+  private readonly toneCheckEnabled: boolean;
+  private readonly relevanceCheckEnabled: boolean;
   private readonly moderationTimeout: number;
   private readonly moderationFallback: 'warn' | 'block';
 
@@ -55,6 +60,10 @@ export class GuardrailsService {
 
     // SSN pattern (US) - requires separators
     ssn: /\b\d{3}[-\s]\d{2}[-\s]\d{4}\b/g,
+
+    // DNI pattern (Argentina) - 7-8 digits with optional dots
+    // Examples: 12.345.678 or 12345678
+    dni: /\b\d{1,2}\.?\d{3}\.?\d{3}\b/g,
   };
 
   // Prompt Injection Patterns
@@ -86,7 +95,11 @@ export class GuardrailsService {
     /---\s*new\s+(instruction|rule)/i,
   ];
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly professionalToneGuardrail: ProfessionalToneGuardrail,
+    private readonly responseRelevanceGuardrail: ResponseRelevanceGuardrail,
+  ) {
     // Initialize OpenAI client
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     if (!apiKey) {
@@ -111,6 +124,14 @@ export class GuardrailsService {
       'GUARDRAILS_ENABLE_BUSINESS_RULES',
       true,
     );
+    this.toneCheckEnabled = this.configService.get<boolean>(
+      'GUARDRAILS_ENABLE_TONE_CHECK',
+      true,
+    );
+    this.relevanceCheckEnabled = this.configService.get<boolean>(
+      'GUARDRAILS_ENABLE_RELEVANCE_CHECK',
+      true,
+    );
     this.moderationTimeout = this.configService.get<number>(
       'OPENAI_MODERATION_TIMEOUT',
       5000,
@@ -125,6 +146,8 @@ export class GuardrailsService {
     this.logger.log(`  Toxicity Check: ${this.toxicityCheckEnabled}`);
     this.logger.log(`  Injection Check: ${this.injectionCheckEnabled}`);
     this.logger.log(`  Business Rules: ${this.businessRulesEnabled}`);
+    this.logger.log(`  Tone Check: ${this.toneCheckEnabled}`);
+    this.logger.log(`  Relevance Check: ${this.relevanceCheckEnabled}`);
   }
 
   /**
@@ -181,6 +204,17 @@ export class GuardrailsService {
       });
     }
 
+    // DNI detection (Argentina)
+    const dniMatches = text.matchAll(this.piiPatterns.dni);
+    for (const match of dniMatches) {
+      matches.push({
+        type: 'dni',
+        value: match[0],
+        start: match.index!,
+        end: match.index! + match[0].length,
+      });
+    }
+
     return matches;
   }
 
@@ -209,38 +243,73 @@ export class GuardrailsService {
   }
 
   /**
-   * Sanitize PII by replacing with placeholders
+   * Sanitize PII by replacing with indexed placeholders and extract metadata
+   * Returns both sanitized text and metadata mapping
    */
-  private sanitizePII(text: string): string {
+  private sanitizePIIWithMetadata(text: string): {
+    sanitized: string;
+    metadata: PIIMetadata;
+  } {
     let sanitized = text;
     const matches = this.detectPII(text);
+    const metadata: PIIMetadata = {};
+
+    // Count occurrences of each PII type for indexing
+    const counters: Record<PIIMatch['type'], number> = {
+      email: 0,
+      phone: 0,
+      credit_card: 0,
+      ssn: 0,
+      dni: 0,
+    };
 
     // Sort matches by start position (descending) to replace from end to start
     // This prevents index shifting issues
     matches.sort((a, b) => b.start - a.start);
 
     for (const match of matches) {
-      const placeholder = this.getPIIPlaceholder(match.type);
+      counters[match.type]++;
+      const placeholder = this.getIndexedPlaceholder(
+        match.type,
+        counters[match.type],
+      );
+
+      // Store mapping: placeholder -> real value
+      metadata[placeholder] = match.value;
+
+      // Replace in text
       sanitized =
-        sanitized.slice(0, match.start) +
-        placeholder +
-        sanitized.slice(match.end);
+        sanitized.slice(0, match.start) + placeholder + sanitized.slice(match.end);
     }
 
+    return { sanitized, metadata };
+  }
+
+  /**
+   * Legacy sanitization method (for backward compatibility)
+   * Uses generic placeholders without metadata
+   */
+  private sanitizePII(text: string): string {
+    const { sanitized } = this.sanitizePIIWithMetadata(text);
     return sanitized;
   }
 
   /**
-   * Get placeholder for PII type
+   * Get indexed placeholder for PII type
+   * Example: email → [EMAIL_1], [EMAIL_2], etc.
    */
-  private getPIIPlaceholder(type: PIIMatch['type']): string {
-    const placeholders = {
-      email: '[EMAIL]',
-      phone: '[PHONE]',
-      credit_card: '[CREDIT_CARD]',
-      ssn: '[SSN]',
+  private getIndexedPlaceholder(
+    type: PIIMatch['type'],
+    index: number,
+  ): string {
+    const prefixes = {
+      email: 'EMAIL',
+      phone: 'PHONE',
+      credit_card: 'CREDIT_CARD',
+      ssn: 'SSN',
+      dni: 'DNI',
     };
-    return placeholders[type];
+    return `[${prefixes[type]}_${index}]`;
   }
 
   /**
@@ -332,8 +401,9 @@ export class GuardrailsService {
 
     const checks: GuardrailCheck[] = [];
     let sanitizedContent = message;
+    let piiMetadata: PIIMetadata | undefined;
 
-    // 1. PII Check (moderate mode - sanitize and continue)
+    // 1. PII Check (moderate mode - sanitize and continue with metadata extraction)
     if (this.piiCheckEnabled) {
       const piiMatches = this.detectPII(message);
       const hasPII = piiMatches.length > 0;
@@ -342,8 +412,15 @@ export class GuardrailsService {
         this.logger.warn(
           `PII detected in input (${piiMatches.length} matches): ${piiMatches.map((m) => m.type).join(', ')}`,
         );
-        sanitizedContent = this.sanitizePII(message);
-        this.logger.log('PII sanitized - continuing with masked content');
+
+        // Extract PII with metadata for tool resolution
+        const result = this.sanitizePIIWithMetadata(message);
+        sanitizedContent = result.sanitized;
+        piiMetadata = result.metadata;
+
+        this.logger.log(
+          `PII sanitized with ${Object.keys(piiMetadata).length} placeholder(s)`,
+        );
       }
 
       checks.push({
@@ -424,7 +501,37 @@ export class GuardrailsService {
       allowed,
       checks,
       sanitizedContent: sanitizedContent !== message ? sanitizedContent : undefined,
+      piiMetadata,
     };
+  }
+
+  /**
+   * Check if response contains leaked PII from metadata and re-sanitize
+   * This prevents PII values that were resolved for tools from leaking in AI responses
+   */
+  private checkPIILeakage(response: string, piiMetadata?: PIIMetadata): string {
+    if (!piiMetadata || Object.keys(piiMetadata).length === 0) {
+      return response;
+    }
+
+    let sanitized = response;
+    let leaksDetected = 0;
+
+    // Check each real PII value from metadata
+    for (const [placeholder, realValue] of Object.entries(piiMetadata)) {
+      // If the real value appears in the response, replace it back with the placeholder
+      if (sanitized.includes(realValue)) {
+        sanitized = sanitized.split(realValue).join(placeholder);
+        leaksDetected++;
+        this.logger.warn(`PII leak detected in output: ${placeholder} value found`);
+      }
+    }
+
+    if (leaksDetected > 0) {
+      this.logger.warn(`Total PII leaks detected and re-sanitized: ${leaksDetected}`);
+    }
+
+    return sanitized;
   }
 
   /**
@@ -441,6 +548,15 @@ export class GuardrailsService {
 
     const checks: GuardrailCheck[] = [];
     let sanitizedContent = response;
+
+    // 0. Check for PII leakage from metadata (if any PII was extracted from input)
+    if (context.piiMetadata) {
+      const leakCheckResult = this.checkPIILeakage(response, context.piiMetadata);
+      if (leakCheckResult !== response) {
+        sanitizedContent = leakCheckResult;
+        this.logger.warn('PII leakage detected and sanitized in output');
+      }
+    }
 
     // 1. PII Check (ensure no PII leakage)
     if (this.piiCheckEnabled) {
@@ -502,6 +618,30 @@ export class GuardrailsService {
           ? `Response too long (${sanitizedContent.length} chars, max ${maxOutputLength})`
           : 'Business rules passed',
       });
+    }
+
+    // 4. LLM-based guardrails (run in parallel for performance)
+    const llmChecks: Promise<GuardrailCheck>[] = [];
+
+    if (this.toneCheckEnabled) {
+      llmChecks.push(
+        this.professionalToneGuardrail.check(sanitizedContent),
+      );
+    }
+
+    if (this.relevanceCheckEnabled) {
+      llmChecks.push(
+        this.responseRelevanceGuardrail.check(
+          sanitizedContent,
+          context.conversationHistory,
+        ),
+      );
+    }
+
+    // Wait for all LLM checks to complete
+    if (llmChecks.length > 0) {
+      const llmResults = await Promise.all(llmChecks);
+      checks.push(...llmResults);
     }
 
     const allowed = checks.every((check) => check.passed);
