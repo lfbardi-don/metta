@@ -114,6 +114,11 @@ export class OdooService implements OnModuleInit, OnModuleDestroy {
    * Search products by query (searches name, SKU, and barcode)
    * This will be exposed as a tool for the AI agent
    *
+   * Smart search features:
+   * - If plural query (ending in 's') returns no results, automatically tries singular
+   * - Case-insensitive search via ilike operator
+   * - Searches across name, SKU, and barcode fields
+   *
    * @param query - Search query string
    * @param limit - Maximum number of results (default: 10)
    * @returns Array of simplified product information
@@ -125,29 +130,54 @@ export class OdooService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Searching products: ${query}`);
 
     try {
-      // Search by name, default_code (SKU), or barcode
-      const products = await this.client.searchRead<OdooProduct>(
-        'product.product',
-        {
-          domain: [
-            '|',
-            '|',
-            ['name', 'ilike', query],
-            ['default_code', 'ilike', query],
-            ['barcode', 'ilike', query],
-          ],
-          fields: [
-            'name',
-            'list_price',
-            'qty_available',
-            'default_code',
-            'description_sale',
-            'categ_id',
-            'barcode',
-          ],
-          limit,
-        },
-      );
+      // Helper function to perform the actual search
+      const performSearch = async (searchTerm: string) => {
+        return await this.client.searchRead<OdooProduct>(
+          'product.product',
+          {
+            domain: [
+              '|',
+              '|',
+              ['name', 'ilike', searchTerm],
+              ['default_code', 'ilike', searchTerm],
+              ['barcode', 'ilike', searchTerm],
+            ],
+            fields: [
+              'name',
+              'list_price',
+              'qty_available',
+              'default_code',
+              'description_sale',
+              'categ_id',
+              'barcode',
+            ],
+            limit,
+          },
+        );
+      };
+
+      // First attempt: search with original query
+      let products = await performSearch(query);
+
+      // Smart fallback: if no results and query ends with 's', try singular form
+      if (products.length === 0 && query.toLowerCase().endsWith('s')) {
+        const singularQuery = query.slice(0, -1);
+        this.logger.log(
+          `No results for "${query}", trying singular form: "${singularQuery}"`,
+        );
+        products = await performSearch(singularQuery);
+      }
+
+      // Additional fallback: if still no results and query ends with 'es', try without 'es'
+      if (products.length === 0 && query.toLowerCase().endsWith('es')) {
+        const singularQuery = query.slice(0, -2);
+        this.logger.log(
+          `No results for "${query}", trying without "es": "${singularQuery}"`,
+        );
+        products = await performSearch(singularQuery);
+      }
+
+      this.logger.log(`Found ${products.length} product(s) matching "${query}"`);
 
       return products.map((product) => this.mapProductToSimplified(product));
     } catch (error) {

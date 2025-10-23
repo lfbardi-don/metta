@@ -7,8 +7,6 @@ import {
   MessageContext,
   PIIMetadata,
 } from '../../common/interfaces';
-import { ProfessionalToneGuardrail } from './professional-tone.guardrail';
-import { ResponseRelevanceGuardrail } from './response-relevance.guardrail';
 
 /**
  * PII Detection result
@@ -39,8 +37,6 @@ export class GuardrailsService {
   private readonly toxicityCheckEnabled: boolean;
   private readonly injectionCheckEnabled: boolean;
   private readonly businessRulesEnabled: boolean;
-  private readonly toneCheckEnabled: boolean;
-  private readonly relevanceCheckEnabled: boolean;
   private readonly moderationTimeout: number;
   private readonly moderationFallback: 'warn' | 'block';
 
@@ -95,11 +91,7 @@ export class GuardrailsService {
     /---\s*new\s+(instruction|rule)/i,
   ];
 
-  constructor(
-    private readonly configService: ConfigService,
-    private readonly professionalToneGuardrail: ProfessionalToneGuardrail,
-    private readonly responseRelevanceGuardrail: ResponseRelevanceGuardrail,
-  ) {
+  constructor(private readonly configService: ConfigService) {
     // Initialize OpenAI client
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     if (!apiKey) {
@@ -124,14 +116,6 @@ export class GuardrailsService {
       'GUARDRAILS_ENABLE_BUSINESS_RULES',
       true,
     );
-    this.toneCheckEnabled = this.configService.get<boolean>(
-      'GUARDRAILS_ENABLE_TONE_CHECK',
-      true,
-    );
-    this.relevanceCheckEnabled = this.configService.get<boolean>(
-      'GUARDRAILS_ENABLE_RELEVANCE_CHECK',
-      true,
-    );
     this.moderationTimeout = this.configService.get<number>(
       'OPENAI_MODERATION_TIMEOUT',
       5000,
@@ -143,11 +127,9 @@ export class GuardrailsService {
 
     this.logger.log('Guardrails service initialized with configuration:');
     this.logger.log(`  PII Check: ${this.piiCheckEnabled}`);
-    this.logger.log(`  Toxicity Check: ${this.toxicityCheckEnabled}`);
+    this.logger.log(`  Toxicity Check (input only): ${this.toxicityCheckEnabled}`);
     this.logger.log(`  Injection Check: ${this.injectionCheckEnabled}`);
     this.logger.log(`  Business Rules: ${this.businessRulesEnabled}`);
-    this.logger.log(`  Tone Check: ${this.toneCheckEnabled}`);
-    this.logger.log(`  Relevance Check: ${this.relevanceCheckEnabled}`);
   }
 
   /**
@@ -580,27 +562,7 @@ export class GuardrailsService {
       });
     }
 
-    // 2. Toxicity Check
-    if (this.toxicityCheckEnabled) {
-      const moderation = await this.checkModeration(sanitizedContent);
-
-      if (moderation.flagged) {
-        this.logger.warn(
-          `Toxic content in output: ${moderation.categories.join(', ')}`,
-        );
-      }
-
-      checks.push({
-        type: 'toxicity',
-        passed: !moderation.flagged,
-        message: moderation.flagged
-          ? `Flagged for: ${moderation.categories.join(', ')}`
-          : 'No toxic content detected',
-        score: moderation.score,
-      });
-    }
-
-    // 3. Business Rules
+    // 2. Business Rules
     if (this.businessRulesEnabled) {
       const maxOutputLength = 5000;
       const tooLong = sanitizedContent.length > maxOutputLength;
@@ -618,30 +580,6 @@ export class GuardrailsService {
           ? `Response too long (${sanitizedContent.length} chars, max ${maxOutputLength})`
           : 'Business rules passed',
       });
-    }
-
-    // 4. LLM-based guardrails (run in parallel for performance)
-    const llmChecks: Promise<GuardrailCheck>[] = [];
-
-    if (this.toneCheckEnabled) {
-      llmChecks.push(
-        this.professionalToneGuardrail.check(sanitizedContent),
-      );
-    }
-
-    if (this.relevanceCheckEnabled) {
-      llmChecks.push(
-        this.responseRelevanceGuardrail.check(
-          sanitizedContent,
-          context.conversationHistory,
-        ),
-      );
-    }
-
-    // Wait for all LLM checks to complete
-    if (llmChecks.length > 0) {
-      const llmResults = await Promise.all(llmChecks);
-      checks.push(...llmResults);
     }
 
     const allowed = checks.every((check) => check.passed);
