@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SimplifiedSQSMessage } from '../../common/interfaces';
+import { ChatwootService } from '../integrations/chatwoot/chatwoot.service';
 
 /**
  * Represents a batch of messages for a single conversation
@@ -75,7 +76,10 @@ export class MessageBatcherService implements OnModuleDestroy {
   private readonly batchDelayMs: number;
   private readonly maxWaitMs: number;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly chatwootService: ChatwootService,
+  ) {
     this.batchingEnabled = this.configService.get<boolean>(
       'MESSAGE_BATCH_ENABLED',
       true,
@@ -141,6 +145,9 @@ export class MessageBatcherService implements OnModuleDestroy {
       this.logger.log(
         `Started batching for conversation ${conversationId} (${this.batchDelayMs}ms window)`,
       );
+
+      // Start typing indicator immediately for user feedback
+      await this.chatwootService.setTypingStatus(conversationId, true);
     } else {
       // Additional message - add to existing batch
       const batch = this.batches.get(conversationId)!;

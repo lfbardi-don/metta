@@ -322,6 +322,9 @@ export class QueueProcessor implements OnModuleInit {
 
       // Re-throw to allow caller to handle
       throw error;
+    } finally {
+      // Stop typing indicator when processing completes (success or failure)
+      await this.chatwootService.setTypingStatus(conversationId, false);
     }
   }
 

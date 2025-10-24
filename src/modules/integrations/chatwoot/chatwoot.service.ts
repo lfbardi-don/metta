@@ -59,6 +59,43 @@ export class ChatwootService {
   }
 
   /**
+   * Set typing indicator status for a conversation
+   * @param conversationId - The Chatwoot conversation ID
+   * @param isTyping - true to show typing indicator, false to hide it
+   */
+  async setTypingStatus(
+    conversationId: string,
+    isTyping: boolean,
+  ): Promise<void> {
+    try {
+      const endpoint = `/api/v1/accounts/${this.accountId}/conversations/${conversationId}/toggle_typing_status`;
+
+      this.logger.debug(
+        `Setting typing status to ${isTyping ? 'ON' : 'OFF'} for conversation ${conversationId}`,
+      );
+
+      await this.axiosInstance.post(endpoint, {
+        typing_status: isTyping ? 'on' : 'off',
+      });
+
+      this.logger.debug(
+        `Typing status set to ${isTyping ? 'ON' : 'OFF'} for conversation ${conversationId}`,
+      );
+    } catch (error) {
+      // Fail silently - typing indicator is non-critical
+      // Don't block message processing if typing API fails
+      this.logger.warn(
+        `Failed to set typing status for conversation ${conversationId}`,
+        {
+          isTyping,
+          error: error.message,
+          status: error.response?.status,
+        },
+      );
+    }
+  }
+
+  /**
    * Get conversation details from Chatwoot
    */
   async getConversation(conversationId: string): Promise<any> {
