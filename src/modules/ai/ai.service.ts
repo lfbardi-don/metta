@@ -73,6 +73,25 @@ export class AIService implements OnModuleInit {
   }
 
   /**
+   * Process multiple incoming messages together (batched)
+   * This is used when multiple messages arrive in quick succession
+   *
+   * @param messages - Array of incoming messages (in chronological order)
+   * @returns Single AI response addressing all messages
+   */
+  async processMessages(messages: IncomingMessage[]): Promise<string> {
+    if (messages.length === 0) {
+      throw new Error('processMessages called with empty array');
+    }
+
+    // Process using the last (most recent) message as the primary one
+    // All messages will be saved to conversation history before processing
+    const lastMessage = messages[messages.length - 1];
+
+    return this.processMessage(lastMessage);
+  }
+
+  /**
    * Process an incoming message through the AI agent
    * This is the main entry point for the AI module
    */
