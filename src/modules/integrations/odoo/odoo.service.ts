@@ -93,6 +93,7 @@ export class OdooService implements OnModuleInit, OnModuleDestroy {
           'description_sale',
           'categ_id',
           'barcode',
+          'image_1920', // High-resolution product image
         ],
       );
 
@@ -150,6 +151,7 @@ export class OdooService implements OnModuleInit, OnModuleDestroy {
               'description_sale',
               'categ_id',
               'barcode',
+              'image_1920', // High-resolution product image
             ],
             limit,
           },
@@ -433,6 +435,13 @@ export class OdooService implements OnModuleInit, OnModuleDestroy {
    * Helper: Map raw Odoo product to simplified format
    */
   private mapProductToSimplified(product: OdooProduct): OdooProductSimplified {
+    // Construct image URL if product has an image
+    let imageUrl: string | undefined = undefined;
+    if (product.image_1920 && typeof product.image_1920 === 'string') {
+      const odooUrl = this.configService.get<string>('ODOO_URL', '');
+      imageUrl = `${odooUrl}/web/image?model=product.product&id=${product.id}&field=image_1920`;
+    }
+
     return {
       id: product.id,
       name: product.name,
@@ -443,6 +452,7 @@ export class OdooService implements OnModuleInit, OnModuleDestroy {
       category: product.categ_id
         ? this.extractMany2OneName(product.categ_id)
         : undefined,
+      imageUrl,
     };
   }
 

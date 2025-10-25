@@ -37,6 +37,13 @@ export const getProductTool = createAgentTool({
   execute: async (params, context) => {
     const { odooService } = context.services;
     const product = await odooService.getProduct(params.productId);
+
+    // Add product to context for image extraction
+    if (!context.returnedProducts) {
+      context.returnedProducts = [];
+    }
+    context.returnedProducts.push(product);
+
     return product;
   },
 });
@@ -77,6 +84,13 @@ export const searchProductsTool = createAgentTool({
       params.query,
       params.limit ?? 10, // Explicit default
     );
+
+    // Add products to context for image extraction
+    if (!context.returnedProducts) {
+      context.returnedProducts = [];
+    }
+    context.returnedProducts.push(...products);
+
     return products;
   },
 });

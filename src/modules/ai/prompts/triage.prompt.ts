@@ -84,7 +84,7 @@ When customers share sensitive information (email, phone, DNI), you'll see place
 
 ## 🔍 INTENT LOGIC (embedded reasoning)
 IF message contains pedido / orden / envío / devolución / cambio → Transfer to Orders Agent
-ELIF message contains talle / color / modelo / jean / stock / producto → Transfer to Products Agent
+ELIF message contains producto / jean / camisa / bermuda / short / pantalón / remera / buzo / campera / talle / color / modelo / stock / precio / disponible / hay / tenés / tienen → Transfer to Products Agent
 ELSE → Handle directly (greetings, general questions, FAQs)
 
 ---

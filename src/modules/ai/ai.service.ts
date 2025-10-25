@@ -5,12 +5,21 @@ import {
   IncomingMessage,
   MessageContext,
   AgentContext,
+  OdooProductSimplified,
 } from '../../common/interfaces';
 import { GuardrailsService } from '../guardrails/guardrails.service';
 import { getGuardrailFallbackMessage } from '../guardrails/guardrail-messages.constant';
 import { OdooService } from '../integrations/odoo/odoo.service';
 import { PersistenceService } from '../persistence/persistence.service';
 import { getProductTools, getOrderTools } from './tools/odoo-tools';
+
+/**
+ * Response from AI service with text and optional product images
+ */
+export interface AIServiceResponse {
+  response: string;
+  products: OdooProductSimplified[];
+}
 
 @Injectable()
 export class AIService implements OnModuleInit {
@@ -79,7 +88,7 @@ export class AIService implements OnModuleInit {
    * @param messages - Array of incoming messages (in chronological order)
    * @returns Single AI response addressing all messages
    */
-  async processMessages(messages: IncomingMessage[]): Promise<string> {
+  async processMessages(messages: IncomingMessage[]): Promise<AIServiceResponse> {
     if (messages.length === 0) {
       throw new Error('processMessages called with empty array');
     }
@@ -95,7 +104,7 @@ export class AIService implements OnModuleInit {
    * Process an incoming message through the AI agent
    * This is the main entry point for the AI module
    */
-  async processMessage(message: IncomingMessage): Promise<string> {
+  async processMessage(message: IncomingMessage): Promise<AIServiceResponse> {
     const context: MessageContext = {
       conversationId: message.conversationId,
       contactId: message.contactId,
@@ -139,7 +148,7 @@ export class AIService implements OnModuleInit {
         'input',
         inputValidation.checks,
       );
-      return fallbackMessage;
+      return { response: fallbackMessage, products: [] };
     }
 
     // Use sanitized content if PII was detected and masked
@@ -158,7 +167,11 @@ export class AIService implements OnModuleInit {
     }
 
     // 2. Process with AI agent (pass dbMessages to avoid re-fetching)
-    const response = await this.chat(contentToProcess, context, dbMessages);
+    const { response, products } = await this.chat(
+      contentToProcess,
+      context,
+      dbMessages,
+    );
 
     // 3. Validate output with guardrails (context includes conversationHistory)
     const outputValidation = await this.guardrailsService.validateOutput(
@@ -178,7 +191,7 @@ export class AIService implements OnModuleInit {
         'output',
         outputValidation.checks,
       );
-      return fallbackMessage;
+      return { response: fallbackMessage, products: [] };
     }
 
     // Use sanitized output if PII was detected and masked
@@ -188,7 +201,7 @@ export class AIService implements OnModuleInit {
       this.logger.log('Using sanitized output (PII masked)');
     }
 
-    return finalResponse;
+    return { response: finalResponse, products };
   }
 
   /**
@@ -203,12 +216,16 @@ export class AIService implements OnModuleInit {
   /**
    * Internal chat method that calls the multi-agent system with conversation history
    * Starts with Triage Agent, which may handoff to specialist agents
+   *
+   * Note: Current message is already saved to DB before this method is called (in queue.processor),
+   * but we fetch history excluding it and add it explicitly to maintain clean separation
+   * between "historical context from DB" and "current user input being processed"
    */
   private async chat(
     message: string,
     context?: MessageContext,
     dbMessages?: any[],
-  ): Promise<string> {
+  ): Promise<AIServiceResponse> {
     try {
       if (!context?.conversationId) {
         throw new Error('conversationId is required for chat');
@@ -218,20 +235,30 @@ export class AIService implements OnModuleInit {
         conversationId: context.conversationId,
       });
 
-      // Use provided messages or fetch them if not provided
+      // Use provided messages or fetch them (excluding latest to avoid duplication)
+      // Current message is already in DB, but we add it explicitly below
       const messages =
         dbMessages ??
         (await this.persistenceService.getMessagesByConversation(
           context.conversationId,
+          { excludeLatest: 1 },
         ));
 
-      const history = this.convertToOpenAIFormat(messages);
+      // If dbMessages was provided, exclude the latest message
+      // (it's the current message that was just saved before calling processMessage)
+      const historyMessages =
+        dbMessages && dbMessages.length > 0
+          ? dbMessages.slice(0, -1)
+          : messages;
 
-      const messagesWithNewInput = [...history, user(message)];
+      const history = this.convertToOpenAIFormat(historyMessages);
+
+      // Add current message explicitly (clean separation: history + current input)
+      const messagesToProcess = [...history, user(message)];
 
       this.logger.log('Agent context prepared', {
         historyMessages: history.length,
-        totalMessages: messagesWithNewInput.length,
+        totalMessages: messagesToProcess.length,
       });
 
       // Create agent context with services and PII metadata
@@ -244,17 +271,27 @@ export class AIService implements OnModuleInit {
         },
         metadata: context.metadata,
         piiMetadata: context.piiMetadata, // Pass PII metadata for tool resolution
+        returnedProducts: [], // Initialize empty array for product tracking
       };
 
       // Run agent with context for tool injection
-      const result = await run(this.triageAgent, messagesWithNewInput, {
+      const result = await run(this.triageAgent, messagesToProcess, {
         context: agentContext,
       });
 
       this.logger.log('Agent system completed successfully');
 
       // finalOutput is plain string - agents follow prompt instructions for clean format
-      return result.finalOutput || 'No response generated';
+      const response = result.finalOutput || 'No response generated';
+
+      // Extract products from context (populated by tools during execution)
+      const products = agentContext.returnedProducts || [];
+
+      this.logger.log(
+        `Extracted ${products.length} product(s) from agent execution`,
+      );
+
+      return { response, products };
     } catch (error) {
       this.logger.error('Multi-agent error', error.stack);
       throw new Error(`AI Service Error: ${error.message}`);

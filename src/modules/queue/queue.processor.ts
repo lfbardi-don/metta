@@ -284,10 +284,19 @@ export class QueueProcessor implements OnModuleInit {
 
       // 3. Process ALL messages together with AI
       this.logger.log('Processing batch with AI service');
-      const response = await this.aiService.processMessages(incomingMessages);
+      const { response, products } =
+        await this.aiService.processMessages(incomingMessages);
 
-      // 4. Send single response to Chatwoot
-      this.logger.log('Sending batch response to Chatwoot');
+      // Log product count for debugging
+      if (products.length > 0) {
+        this.logger.log(
+          `AI returned ${products.length} product(s) - formatted inline with images`,
+        );
+      }
+
+      // 4. Send AI response (text with inline markdown images)
+      // AI automatically formats products using card-style template with ![alt](url) syntax
+      this.logger.log('Sending response to Chatwoot');
       const outgoingMessage = {
         conversationId,
         content: response,

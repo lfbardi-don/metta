@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { OdooService } from '../../modules/integrations/odoo/odoo.service';
 import { PIIMetadata } from './guardrail.interface';
+import { OdooProductSimplified } from './odoo.interface';
 
 /**
  * Context passed to all agent tools via the execute function
@@ -43,4 +44,10 @@ export interface AgentContext {
    * Used internally by tool helper to resolve placeholders before execution
    */
   piiMetadata?: PIIMetadata;
+
+  /**
+   * Products returned by tools during execution
+   * Used to extract product images for sending with the response
+   */
+  returnedProducts?: OdooProductSimplified[];
 }

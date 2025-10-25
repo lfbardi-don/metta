@@ -1,7 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
-import { OutgoingMessage } from '../../../common/interfaces';
+import {
+  OutgoingMessage,
+  OutgoingMessageWithAttachments,
+  MessageAttachment,
+  OutgoingCardMessage,
+} from '../../../common/interfaces';
+import FormData from 'form-data';
+import { Readable } from 'stream';
 
 @Injectable()
 export class ChatwootService {
@@ -55,6 +62,159 @@ export class ChatwootService {
         status: error.response?.status,
       });
       throw new Error(`Failed to send message to Chatwoot: ${error.message}`);
+    }
+  }
+
+  /**
+   * Send a message with attachments to a Chatwoot conversation
+   * Downloads attachments from provided URLs and uploads them to Chatwoot
+   *
+   * NOTE: For product images, prefer using sendCardMessage() instead.
+   * Cards are faster (no download/upload) and provide better UX with interactive buttons.
+   * This method is kept for backward compatibility and non-product attachments.
+   */
+  async sendMessageWithAttachments(
+    message: OutgoingMessageWithAttachments,
+  ): Promise<void> {
+    try {
+      const endpoint = `/api/v1/accounts/${this.accountId}/conversations/${message.conversationId}/messages`;
+
+      this.logger.log(
+        `Sending message with ${message.attachments?.length || 0} attachment(s) to conversation ${message.conversationId}`,
+      );
+
+      // Create form data
+      const form = new FormData();
+      form.append('content', message.content);
+      form.append('message_type', 'outgoing');
+      form.append('private', 'false');
+
+      // Download and attach each file
+      if (message.attachments && message.attachments.length > 0) {
+        for (const [index, attachment] of message.attachments.entries()) {
+          try {
+            const fileStream = await this.downloadAttachment(attachment);
+            const filename =
+              attachment.filename ||
+              `attachment_${index}.${this.getFileExtension(attachment)}`;
+            form.append('attachments[]', fileStream, { filename });
+
+            this.logger.debug(
+              `Added attachment ${index + 1}/${message.attachments.length}: ${filename}`,
+            );
+          } catch (error) {
+            this.logger.warn(
+              `Failed to download attachment ${index + 1}, skipping`,
+              {
+                url: attachment.url,
+                error: error.message,
+              },
+            );
+            // Continue with other attachments even if one fails
+          }
+        }
+      }
+
+      // Send request with multipart/form-data
+      const apiUrl = this.configService.get<string>('CHATWOOT_API_URL', '');
+      const apiKey = this.configService.get<string>('CHATWOOT_API_KEY', '');
+
+      const response = await axios.post(`${apiUrl}${endpoint}`, form, {
+        headers: {
+          ...form.getHeaders(),
+          api_access_token: apiKey,
+        },
+        timeout: 30000, // 30 second timeout for file uploads
+      });
+
+      this.logger.log(
+        `Message with attachments sent successfully. Message ID: ${response.data.id}`,
+      );
+    } catch (error) {
+      this.logger.error('Failed to send message with attachments to Chatwoot', {
+        conversationId: message.conversationId,
+        error: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+      throw new Error(
+        `Failed to send message with attachments to Chatwoot: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Download an attachment from a URL and return it as a stream
+   */
+  private async downloadAttachment(
+    attachment: MessageAttachment,
+  ): Promise<Readable> {
+    try {
+      this.logger.debug(`Downloading attachment from: ${attachment.url}`);
+
+      const response = await axios.get(attachment.url, {
+        responseType: 'stream',
+        timeout: 10000, // 10 second timeout for download
+      });
+
+      return response.data;
+    } catch (error) {
+      this.logger.error(`Failed to download attachment from ${attachment.url}`, {
+        error: error.message,
+      });
+      throw new Error(`Failed to download attachment: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get file extension based on attachment type
+   */
+  private getFileExtension(attachment: MessageAttachment): string {
+    if (attachment.type === 'image') {
+      return 'jpg'; // Default to jpg for images
+    }
+    return 'bin'; // Default for other files
+  }
+
+  /**
+   * Send an interactive card message to a Chatwoot conversation
+   * Cards support images via direct URLs (no download/upload required)
+   * and can include action buttons
+   */
+  async sendCardMessage(message: OutgoingCardMessage): Promise<void> {
+    try {
+      const endpoint = `/api/v1/accounts/${this.accountId}/conversations/${message.conversationId}/messages`;
+
+      this.logger.log(
+        `Sending card message with ${message.content_attributes.items.length} card(s) to conversation ${message.conversationId}`,
+      );
+
+      const response = await this.axiosInstance.post(endpoint, {
+        content: message.content,
+        content_type: 'cards',
+        content_attributes: {
+          items: message.content_attributes.items.map((card) => ({
+            media_url: card.media_url,
+            title: card.title,
+            description: card.description,
+            actions: card.actions || [],
+          })),
+        },
+        message_type: 'outgoing',
+        private: false,
+      });
+
+      this.logger.log(
+        `Card message sent successfully. Message ID: ${response.data.id}`,
+      );
+    } catch (error) {
+      this.logger.error('Failed to send card message to Chatwoot', {
+        conversationId: message.conversationId,
+        error: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+      throw new Error(`Failed to send card message to Chatwoot: ${error.message}`);
     }
   }
 

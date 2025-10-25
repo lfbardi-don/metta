@@ -106,9 +106,16 @@ export class PersistenceService {
 
   /**
    * Get messages by conversation ID
-   * Returns all messages in chronological order for AI context
+   * Returns messages in chronological order for AI context
+   *
+   * @param conversationId - The conversation ID
+   * @param options - Optional query options
+   * @param options.excludeLatest - Exclude N most recent messages (useful to avoid duplication)
    */
-  async getMessagesByConversation(conversationId: string): Promise<any[]> {
+  async getMessagesByConversation(
+    conversationId: string,
+    options?: { excludeLatest?: number },
+  ): Promise<any[]> {
     try {
       const messages = await this.prisma.message.findMany({
         where: { conversationId },
@@ -121,12 +128,20 @@ export class PersistenceService {
         },
       });
 
+      // Exclude latest N messages if requested
+      const filteredMessages =
+        options?.excludeLatest && options.excludeLatest > 0
+          ? messages.slice(0, -options.excludeLatest)
+          : messages;
+
       this.logger.log('Retrieved conversation history', {
         conversationId,
-        messageCount: messages.length,
+        totalMessages: messages.length,
+        returnedMessages: filteredMessages.length,
+        excludedLatest: options?.excludeLatest || 0,
       });
 
-      return messages;
+      return filteredMessages;
     } catch (error) {
       this.logger.error('Failed to retrieve conversation history', {
         error: error.message,

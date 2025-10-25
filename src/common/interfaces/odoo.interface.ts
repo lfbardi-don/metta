@@ -45,6 +45,7 @@ export interface OdooProduct extends OdooRecord {
   type?: 'consu' | 'service' | 'product'; // Product type
   sale_ok?: boolean; // Can be sold
   purchase_ok?: boolean; // Can be purchased
+  image_1920?: string | false; // Product image (base64 or false if no image)
 }
 
 /**
@@ -58,6 +59,7 @@ export interface OdooProductSimplified {
   sku?: string;
   description?: string;
   category?: string;
+  imageUrl?: string; // URL to product image from Odoo
 }
 
 /**

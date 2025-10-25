@@ -16,6 +16,57 @@ export interface OutgoingMessage {
   messageType: 'text' | 'interactive';
 }
 
+/**
+ * Attachment for outgoing messages
+ */
+export interface MessageAttachment {
+  url: string; // URL to download the attachment (e.g., Odoo image URL)
+  type: 'image' | 'file';
+  filename?: string; // Optional filename override
+}
+
+/**
+ * Outgoing message with optional attachments
+ * Extends OutgoingMessage to support sending images/files
+ */
+export interface OutgoingMessageWithAttachments extends OutgoingMessage {
+  attachments?: MessageAttachment[];
+}
+
+/**
+ * Action button for card messages
+ */
+export interface CardAction {
+  type: 'link' | 'postback';
+  text: string;
+  uri?: string; // For type: 'link' - URL to open
+  payload?: string; // For type: 'postback' - data sent back to bot
+}
+
+/**
+ * Product card for interactive messages
+ */
+export interface ProductCard {
+  productId: number;
+  media_url: string; // URL to product image (must be publicly accessible)
+  title: string; // Product name
+  description: string; // Product details (price, stock, etc)
+  actions?: CardAction[]; // Optional action buttons
+}
+
+/**
+ * Outgoing card message
+ * Used for sending interactive cards with images and action buttons
+ */
+export interface OutgoingCardMessage {
+  conversationId: string;
+  content: string; // Text message before cards
+  content_type: 'cards';
+  content_attributes: {
+    items: ProductCard[];
+  };
+}
+
 export interface MessageContext {
   conversationId: string;
   contactId: string;
