@@ -13,6 +13,7 @@ import { GuardrailsService } from '../guardrails/guardrails.service';
 import { getGuardrailFallbackMessage } from '../guardrails/guardrail-messages.constant';
 import { OdooService } from '../integrations/odoo/odoo.service';
 import { NuvemshopService } from '../integrations/nuvemshop/nuvemshop.service';
+import { KnowledgeService } from '../integrations/knowledge/knowledge.service';
 import { PersistenceService } from '../persistence/persistence.service';
 import { AuthenticationService } from '../authentication/authentication.service';
 import { getProductTools, getOrderTools } from './tools/odoo-tools';
@@ -24,6 +25,7 @@ import {
   getNuvemshopStoreTools,
   getNuvemshopFulfillmentTools,
 } from './tools/nuvemshop-tools';
+import { getKnowledgeTools } from './tools/knowledge-tools';
 import { verifyDNITool, checkAuthStatusTool } from './tools/authentication';
 
 /**
@@ -45,6 +47,7 @@ export class AIService implements OnModuleInit {
     private readonly guardrailsService: GuardrailsService,
     private readonly odooService: OdooService,
     private readonly nuvemshopService: NuvemshopService,
+    private readonly knowledgeService: KnowledgeService,
     private readonly persistenceService: PersistenceService,
     private readonly authenticationService: AuthenticationService,
   ) { }
@@ -83,13 +86,14 @@ export class AIService implements OnModuleInit {
       : getProductTools();
 
     // For Nuvemshop, add store tools to Triage Agent for general info questions
+    // ALWAYS add knowledge tools for FAQs, policies, and business info
     const triageTools = this.productIntegration === 'nuvemshop'
-      ? getNuvemshopStoreTools()
-      : [];
+      ? [...getNuvemshopStoreTools(), ...getKnowledgeTools()]
+      : getKnowledgeTools();
 
     this.logger.log(`Assigned ${orderTools.length} tools to Orders Agent (${this.productIntegration})`);
     this.logger.log(`Assigned ${productTools.length} tools to Products Agent (${this.productIntegration})`);
-    this.logger.log(`Assigned ${triageTools.length} tools to Triage Agent (${this.productIntegration})`);
+    this.logger.log(`Assigned ${triageTools.length} tools to Triage Agent (${this.productIntegration} + knowledge base)`);
 
     // Create specialist agents
     // Note: No outputType - agents return plain text per prompt instructions
@@ -319,6 +323,7 @@ export class AIService implements OnModuleInit {
         services: {
           odooService: this.odooService,
           nuvemshopService: this.nuvemshopService,
+          knowledgeService: this.knowledgeService,
           authenticationService: this.authenticationService,
           logger: this.logger,
         },

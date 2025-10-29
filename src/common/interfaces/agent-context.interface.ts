@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { OdooService } from '../../modules/integrations/odoo/odoo.service';
 import { NuvemshopService } from '../../modules/integrations/nuvemshop/nuvemshop.service';
+import { KnowledgeService } from '../../modules/integrations/knowledge/knowledge.service';
 import { AuthenticationService } from '../../modules/authentication/authentication.service';
 import { PIIMetadata } from './guardrail.interface';
 import { OdooProductSimplified } from './odoo.interface';
@@ -34,6 +35,12 @@ export interface AgentContext {
      * Nuvemshop/Tiendanube e-commerce service for product operations
      */
     nuvemshopService: NuvemshopService;
+
+    /**
+     * Knowledge base service for FAQs, policies, and business information
+     * Provides access to store knowledge without cluttering system prompts
+     */
+    knowledgeService: KnowledgeService;
 
     /**
      * Authentication service for customer identity verification
