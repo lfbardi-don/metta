@@ -14,6 +14,7 @@ import { getGuardrailFallbackMessage } from '../guardrails/guardrail-messages.co
 import { OdooService } from '../integrations/odoo/odoo.service';
 import { NuvemshopService } from '../integrations/nuvemshop/nuvemshop.service';
 import { PersistenceService } from '../persistence/persistence.service';
+import { AuthenticationService } from '../authentication/authentication.service';
 import { getProductTools, getOrderTools } from './tools/odoo-tools';
 import {
   getNuvemshopProductTools,
@@ -23,6 +24,7 @@ import {
   getNuvemshopStoreTools,
   getNuvemshopFulfillmentTools,
 } from './tools/nuvemshop-tools';
+import { verifyDNITool, checkAuthStatusTool } from './tools/authentication';
 
 /**
  * Response from AI service with text and optional product images
@@ -44,6 +46,7 @@ export class AIService implements OnModuleInit {
     private readonly odooService: OdooService,
     private readonly nuvemshopService: NuvemshopService,
     private readonly persistenceService: PersistenceService,
+    private readonly authenticationService: AuthenticationService,
   ) { }
 
   async onModuleInit() {
@@ -56,12 +59,19 @@ export class AIService implements OnModuleInit {
 
     // Get tools based on feature flag (applies to both products AND orders)
     // For Nuvemshop, combine order tools with fulfillment tools (tracking, payment history)
+    // ALWAYS add authentication tools for securing order access
     const orderTools = this.productIntegration === 'nuvemshop'
       ? [
+          verifyDNITool,
+          checkAuthStatusTool,
           ...getNuvemshopOrderTools(),
           ...getNuvemshopFulfillmentTools(),
         ]
-      : getOrderTools();
+      : [
+          verifyDNITool,
+          checkAuthStatusTool,
+          ...getOrderTools(),
+        ];
 
     // For Nuvemshop, combine product tools with category and promotion tools
     const productTools = this.productIntegration === 'nuvemshop'
@@ -309,6 +319,7 @@ export class AIService implements OnModuleInit {
         services: {
           odooService: this.odooService,
           nuvemshopService: this.nuvemshopService,
+          authenticationService: this.authenticationService,
           logger: this.logger,
         },
         metadata: context.metadata,

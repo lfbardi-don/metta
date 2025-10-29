@@ -29,11 +29,28 @@ model Message {
 }
 
 model Conversation {
-  id        String    @id
-  metadata  Json?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  messages  Message[]
+  id          String       @id
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  messages    Message[]
+  authSession AuthSession?
 
   @@index([createdAt])
+}
+
+model AuthSession {
+  id             String    @id @default(uuid())
+  conversationId String    @unique
+  email          String // Hashed email for privacy
+  verified       Boolean   @default(false)
+  expiresAt      DateTime // Session expiration (30 minutes after verification)
+  metadata       Json? // For storing additional data (e.g., failed attempt counters)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([expiresAt])
 }

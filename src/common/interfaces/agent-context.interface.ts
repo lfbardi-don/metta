@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { OdooService } from '../../modules/integrations/odoo/odoo.service';
 import { NuvemshopService } from '../../modules/integrations/nuvemshop/nuvemshop.service';
+import { AuthenticationService } from '../../modules/authentication/authentication.service';
 import { PIIMetadata } from './guardrail.interface';
 import { OdooProductSimplified } from './odoo.interface';
 import { NuvemshopProductSimplified } from './nuvemshop.interface';
@@ -33,6 +34,12 @@ export interface AgentContext {
      * Nuvemshop/Tiendanube e-commerce service for product operations
      */
     nuvemshopService: NuvemshopService;
+
+    /**
+     * Authentication service for customer identity verification
+     * Used to secure access to private order data using DNI verification
+     */
+    authenticationService: AuthenticationService;
 
     /**
      * Logger instance for structured logging

@@ -7,6 +7,7 @@
 
 import { z } from 'zod';
 import { createAgentTool } from '../../../common/helpers/create-agent-tool.helper';
+import { createProtectedTool } from '../../../common/helpers/create-protected-tool.helper';
 
 // ============================================================================
 // PRODUCT TOOLS
@@ -372,7 +373,7 @@ const getOrderTrackingSchema = z.object({
     .describe('Order ID as string (e.g., "123") or order number'),
 });
 
-export const getNuvemshopOrderTrackingTool = createAgentTool({
+export const getNuvemshopOrderTrackingTool = createProtectedTool({
   name: 'get_nuvemshop_order_tracking',
   description:
     'Get tracking information for an order from Nuvemshop. Returns tracking numbers, carrier details, shipment status, and estimated delivery date. Use this for "Where is my order?" questions.',
@@ -403,7 +404,7 @@ const getPaymentHistorySchema = z.object({
     .describe('Order ID as string (e.g., "123") or order number'),
 });
 
-export const getNuvemshopPaymentHistoryTool = createAgentTool({
+export const getNuvemshopPaymentHistoryTool = createProtectedTool({
   name: 'get_nuvemshop_payment_history',
   description:
     'Get payment transaction history for an order from Nuvemshop. Returns payment status, transaction details, amounts, payment methods, and any error messages. Use this to troubleshoot payment issues.',
@@ -439,7 +440,7 @@ const getOrderSchema = z.object({
     ),
 });
 
-export const getNuvemshopOrderTool = createAgentTool({
+export const getNuvemshopOrderTool = createProtectedTool({
   name: 'get_nuvemshop_order',
   description:
     'Get order details from Nuvemshop by ID or order number. Accepts order ID as string (e.g., "123"). Returns full order details with status, items, customer info, and total.',
@@ -492,7 +493,7 @@ const getCustomerOrdersSchema = z.object({
     ),
 });
 
-export const getNuvemshopCustomerOrdersTool = createAgentTool({
+export const getNuvemshopCustomerOrdersTool = createProtectedTool({
   name: 'get_nuvemshop_customer_orders',
   description:
     'Get customer order history from Nuvemshop with optional filters. Use this for "my orders", "recent orders", "pending orders", etc. Returns order list sorted by most recent first. Email may be placeholder like [EMAIL_1].',
@@ -527,7 +528,7 @@ const getCustomerSchema = z.object({
     .describe('The Nuvemshop customer ID'),
 });
 
-export const getNuvemshopCustomerTool = createAgentTool({
+export const getNuvemshopCustomerTool = createProtectedTool({
   name: 'get_nuvemshop_customer',
   description:
     'Get customer information from Nuvemshop by customer ID. Returns name, email, and phone.',

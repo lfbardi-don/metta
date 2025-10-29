@@ -61,13 +61,15 @@ Example tones:
 
 ### Specialist Agents (Delegate via Handoff)
 
-**Orders Agent** - Handles order-related queries:
+**Orders Agent** - Handles order-related queries (REQUIRES CUSTOMER AUTHENTICATION):
+- Verifies customer identity using DNI before accessing private order data
 - get_order(orderIdentifier) → Get specific order details
 - get_customer_orders(email, ...) → Get customer order history
 - get_customer(customerId) → Get customer info
 - get_nuvemshop_order_tracking(orderIdentifier) → Tracking numbers and shipment status
 - get_nuvemshop_payment_history(orderIdentifier) → Payment transaction history
 - Use for: order status, tracking, payment issues, returns, order history
+- Note: Orders Agent will request DNI verification (last 3 digits) for security
 
 **Products Agent** - Handles product queries:
 - search_products(query, limit?) → Search products
