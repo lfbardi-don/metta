@@ -50,10 +50,12 @@ This is a **long-running worker process**, not a traditional API server:
 
 ### Message Flow
 ```
-AWS Lambda (external) → SQS → QueueModule → Guardrails → AI Agent (+Odoo tools) → Guardrails → Chatwoot API
+AWS Lambda (external) → SQS → QueueModule → Guardrails → AI Agent (+Integration tools) → Guardrails → Chatwoot API
                                                 ↓
                                            Persistence (audit)
 ```
+
+Note: Integration tools = Odoo or Nuvemshop (controlled by `PRODUCT_INTEGRATION` env var)
 
 ### Module Dependency Graph
 ```
@@ -62,12 +64,13 @@ AppModule
 ├── GuardrailsModule - Standalone validation
 ├── IntegrationsModule
 │   ├── ChatwootService - API client (SEND only, no webhooks)
-│   └── OdooService - Tools for AI agent
+│   ├── OdooService - ERP integration tools for AI agent
+│   └── NuvemshopService - E-commerce integration tools for AI agent
 ├── QueueModule - ENTRY POINT (auto-starts on init)
-│   └── Imports: AIModule, IntegrationsModule (when implemented)
+│   └── Imports: AIModule, IntegrationsModule
 └── AIModule
     ├── imports GuardrailsModule
-    └── imports IntegrationsModule (for OdooService)
+    └── imports IntegrationsModule (for OdooService + NuvemshopService)
 ```
 
 ### Key Architectural Patterns
@@ -78,7 +81,7 @@ AppModule
 
 **Guardrails are bidirectional**: Input validation before AI processing, output validation before sending to Chatwoot.
 
-**OdooService methods become AI tools**: Methods like `getProduct()`, `searchProducts()` are converted to tool definitions that the OpenAI agent can call. Tools are created using the `createAgentTool` helper in `src/common/helpers/create-agent-tool.helper.ts`.
+**Integration service methods become AI tools**: Methods like `getProduct()`, `searchProducts()`, `getStoreInfo()`, `getOrderTracking()` are converted to tool definitions that the OpenAI agent can call. Tools are created using the `createAgentTool` helper in `src/common/helpers/create-agent-tool.helper.ts`.
 
 **Database is audit-only**: Messages saved to Neon PostgreSQL are for compliance/debugging, never retrieved as context for the AI agent.
 
@@ -90,12 +93,23 @@ AppModule
 
 **Fully Implemented:**
 - ✅ **OdooService** - Complete JSON-RPC client with all methods exposed as AI tools
-- ✅ **AIService** - Multi-agent system with real Odoo tools integrated
+- ✅ **NuvemshopService** - Complete REST API client with comprehensive e-commerce tools
+- ✅ **AIService** - Multi-agent system with real integration tools (Odoo/Nuvemshop)
 - ✅ **GuardrailsService** - Full validation with PII detection, prompt injection detection, OpenAI Moderation API integration
 - ✅ **QueueService** - Complete SQS integration with polling, message handling, and graceful shutdown
 - ✅ **QueueProcessor** - Full message processing pipeline with guardrails and AI integration
 - ✅ **PersistenceService** - Core message persistence (save/get messages) fully implemented
 - ✅ **ChatwootService** - Core sendMessage() method fully implemented
+
+**Nuvemshop Integration - Complete E-commerce Coverage:**
+- ✅ **Products** - Search, details, stock, categories
+- ✅ **Orders** - Search by customer, order details, customer info
+- ✅ **Promotions** - Active promotions, coupon validation
+- ✅ **Store Information** - Contact details, business hours, social media
+- ✅ **Shipping Options** - Available carriers and methods
+- ✅ **Payment Methods** - Enabled payment providers
+- ✅ **Order Tracking** - Tracking numbers, shipment status
+- ✅ **Payment History** - Transaction details, refund status
 
 **Optional Enhancements (Non-blocking):**
 - ⚠️ **ChatwootService** - Additional methods (getConversation, markAsRead, updateStatus) are stubbed
@@ -110,6 +124,7 @@ All type contracts in `src/common/interfaces/`:
 - `chatwoot-webhook.interface.ts` - ChatwootWebhookPayload (from Lambda), SQSMessagePayload
 - `message.interface.ts` - IncomingMessage, OutgoingMessage, MessageContext, `fromChatwootWebhook()` helper
 - `odoo.interface.ts` - OdooProduct, OdooOrder, OdooCustomer
+- `nuvemshop.interface.ts` - NuvemshopProduct, NuvemshopOrder, NuvemshopStore, NuvemshopShippingCarrier, NuvemshopPaymentProvider, NuvemshopFulfillment, NuvemshopTransaction (+ simplified variants)
 - `queue.interface.ts` - QueueConfig, ProcessingResult
 - `guardrail.interface.ts` - GuardrailCheck, GuardrailResult
 

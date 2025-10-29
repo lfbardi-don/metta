@@ -15,7 +15,14 @@ import { OdooService } from '../integrations/odoo/odoo.service';
 import { NuvemshopService } from '../integrations/nuvemshop/nuvemshop.service';
 import { PersistenceService } from '../persistence/persistence.service';
 import { getProductTools, getOrderTools } from './tools/odoo-tools';
-import { getNuvemshopProductTools } from './tools/nuvemshop-tools';
+import {
+  getNuvemshopProductTools,
+  getNuvemshopOrderTools,
+  getNuvemshopCategoryTools,
+  getNuvemshopPromotionTools,
+  getNuvemshopStoreTools,
+  getNuvemshopFulfillmentTools,
+} from './tools/nuvemshop-tools';
 
 /**
  * Response from AI service with text and optional product images
@@ -47,14 +54,32 @@ export class AIService implements OnModuleInit {
 
     this.logger.log(`Product integration: ${this.productIntegration.toUpperCase()}`);
 
-    // Get tools based on feature flag
-    const orderTools = getOrderTools(); // Still using Odoo for orders
+    // Get tools based on feature flag (applies to both products AND orders)
+    // For Nuvemshop, combine order tools with fulfillment tools (tracking, payment history)
+    const orderTools = this.productIntegration === 'nuvemshop'
+      ? [
+          ...getNuvemshopOrderTools(),
+          ...getNuvemshopFulfillmentTools(),
+        ]
+      : getOrderTools();
+
+    // For Nuvemshop, combine product tools with category and promotion tools
     const productTools = this.productIntegration === 'nuvemshop'
-      ? getNuvemshopProductTools()
+      ? [
+          ...getNuvemshopProductTools(),
+          ...getNuvemshopCategoryTools(),
+          ...getNuvemshopPromotionTools(),
+        ]
       : getProductTools();
 
-    this.logger.log(`Assigned ${orderTools.length} tools to Orders Agent`);
+    // For Nuvemshop, add store tools to Triage Agent for general info questions
+    const triageTools = this.productIntegration === 'nuvemshop'
+      ? getNuvemshopStoreTools()
+      : [];
+
+    this.logger.log(`Assigned ${orderTools.length} tools to Orders Agent (${this.productIntegration})`);
     this.logger.log(`Assigned ${productTools.length} tools to Products Agent (${this.productIntegration})`);
+    this.logger.log(`Assigned ${triageTools.length} tools to Triage Agent (${this.productIntegration})`);
 
     // Create specialist agents
     // Note: No outputType - agents return plain text per prompt instructions
@@ -77,11 +102,13 @@ export class AIService implements OnModuleInit {
     });
 
     // Create triage agent (entry point)
+    // For Nuvemshop, Triage Agent has store info tools for general questions
     // All agents rely on prompt engineering for clean output format
     this.triageAgent = new Agent({
       name: 'Triage Agent',
       instructions: TRIAGE_PROMPT,
       handoffs: [ordersAgent, productsAgent],
+      tools: triageTools,
       model: 'gpt-4o-mini',
     });
 
