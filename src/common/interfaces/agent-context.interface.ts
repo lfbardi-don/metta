@@ -1,7 +1,9 @@
 import { Logger } from '@nestjs/common';
 import { OdooService } from '../../modules/integrations/odoo/odoo.service';
+import { NuvemshopService } from '../../modules/integrations/nuvemshop/nuvemshop.service';
 import { PIIMetadata } from './guardrail.interface';
 import { OdooProductSimplified } from './odoo.interface';
+import { NuvemshopProductSimplified } from './nuvemshop.interface';
 
 /**
  * Context passed to all agent tools via the execute function
@@ -28,6 +30,11 @@ export interface AgentContext {
     odooService: OdooService;
 
     /**
+     * Nuvemshop/Tiendanube e-commerce service for product operations
+     */
+    nuvemshopService: NuvemshopService;
+
+    /**
      * Logger instance for structured logging
      */
     logger: Logger;
@@ -48,6 +55,7 @@ export interface AgentContext {
   /**
    * Products returned by tools during execution
    * Used to extract product images for sending with the response
+   * Can include products from Odoo or Nuvemshop
    */
-  returnedProducts?: OdooProductSimplified[];
+  returnedProducts?: Array<OdooProductSimplified | NuvemshopProductSimplified>;
 }

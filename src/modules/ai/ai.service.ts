@@ -1,4 +1,5 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Agent, run, user, assistant } from '@openai/agents';
 import { TRIAGE_PROMPT, ORDERS_PROMPT, PRODUCTS_PROMPT } from './prompts';
 import {
@@ -6,41 +7,54 @@ import {
   MessageContext,
   AgentContext,
   OdooProductSimplified,
+  NuvemshopProductSimplified,
 } from '../../common/interfaces';
 import { GuardrailsService } from '../guardrails/guardrails.service';
 import { getGuardrailFallbackMessage } from '../guardrails/guardrail-messages.constant';
 import { OdooService } from '../integrations/odoo/odoo.service';
+import { NuvemshopService } from '../integrations/nuvemshop/nuvemshop.service';
 import { PersistenceService } from '../persistence/persistence.service';
 import { getProductTools, getOrderTools } from './tools/odoo-tools';
+import { getNuvemshopProductTools } from './tools/nuvemshop-tools';
 
 /**
  * Response from AI service with text and optional product images
  */
 export interface AIServiceResponse {
   response: string;
-  products: OdooProductSimplified[];
+  products: Array<OdooProductSimplified | NuvemshopProductSimplified>;
 }
 
 @Injectable()
 export class AIService implements OnModuleInit {
   private readonly logger = new Logger(AIService.name);
   private triageAgent: Agent;
+  private productIntegration: 'odoo' | 'nuvemshop';
 
   constructor(
+    private readonly configService: ConfigService,
     private readonly guardrailsService: GuardrailsService,
     private readonly odooService: OdooService,
+    private readonly nuvemshopService: NuvemshopService,
     private readonly persistenceService: PersistenceService,
   ) { }
 
   async onModuleInit() {
     this.logger.log('Initializing multi-agent system with handoffs...');
 
-    // Get tools using new tool creation pattern
-    const orderTools = getOrderTools();
-    const productTools = getProductTools();
+    // Read feature flag to determine which product integration to use
+    this.productIntegration = this.configService.get<string>('PRODUCT_INTEGRATION', 'nuvemshop') as 'odoo' | 'nuvemshop';
+
+    this.logger.log(`Product integration: ${this.productIntegration.toUpperCase()}`);
+
+    // Get tools based on feature flag
+    const orderTools = getOrderTools(); // Still using Odoo for orders
+    const productTools = this.productIntegration === 'nuvemshop'
+      ? getNuvemshopProductTools()
+      : getProductTools();
 
     this.logger.log(`Assigned ${orderTools.length} tools to Orders Agent`);
-    this.logger.log(`Assigned ${productTools.length} tools to Products Agent`);
+    this.logger.log(`Assigned ${productTools.length} tools to Products Agent (${this.productIntegration})`);
 
     // Create specialist agents
     // Note: No outputType - agents return plain text per prompt instructions
@@ -267,6 +281,7 @@ export class AIService implements OnModuleInit {
         contactId: context.contactId,
         services: {
           odooService: this.odooService,
+          nuvemshopService: this.nuvemshopService,
           logger: this.logger,
         },
         metadata: context.metadata,
