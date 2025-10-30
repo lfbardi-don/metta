@@ -43,6 +43,8 @@ export class NuvemshopService implements OnModuleInit {
   private readonly logger = new Logger(NuvemshopService.name);
   private client: NuvemshopClient;
   private preferredLanguage: 'pt' | 'es' | 'en' = 'pt'; // Default to Portuguese
+  private categoryMapping: Map<string, number> = new Map(); // keyword → category_id
+  private jeanCategories: number[] = []; // All jean-related category IDs
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -87,6 +89,60 @@ export class NuvemshopService implements OnModuleInit {
         error,
       );
     }
+
+    // Initialize category mapping for intelligent search
+    await this.initializeCategoryMapping();
+  }
+
+  /**
+   * Load categories once and create keyword mapping for intelligent search
+   * Called on service initialization
+   */
+  private async initializeCategoryMapping(): Promise<void> {
+    try {
+      const categories = await this.client.getCategories();
+      this.logger.log(`Loaded ${categories.length} categories from Nuvemshop`);
+
+      // Define keyword mappings based on METTA store structure
+      const mappings = [
+        { keywords: ['mom', 'tiro alto', 'high rise', 'cintura alta'], name: 'MOM' },
+        { keywords: ['skinny', 'ajustado', 'entallado'], name: 'SKINNY' },
+        { keywords: ['straight', 'recto'], name: 'STRAIGHT' },
+        { keywords: ['wide leg', 'wideleg', 'pierna ancha', 'ancho'], name: 'WIDELEG' },
+        { keywords: ['baggy', 'holgado'], name: 'BAGGY' },
+        { keywords: ['oxford'], name: 'OXFORD' },
+        { keywords: ['camisa', 'shirt'], name: 'CAMISAS' },
+        { keywords: ['remera', 'tshirt', 'camiseta'], name: 'REMERAS' },
+        { keywords: ['bermuda'], name: 'BERMUDAS' },
+        { keywords: ['short'], name: 'SHORT' },
+        { keywords: ['pollera', 'falda', 'skirt'], name: 'POLLERA' },
+        { keywords: ['campera', 'chaqueta', 'jacket'], name: 'CAMPERAS' },
+      ];
+
+      // Build mapping
+      for (const category of categories) {
+        const categoryName = (extractLanguage(category.name, this.preferredLanguage) || '').toUpperCase();
+
+        // Find matching mapping
+        const mapping = mappings.find(m => m.name === categoryName);
+        if (mapping) {
+          // Map all keywords to this category ID
+          mapping.keywords.forEach(keyword => {
+            this.categoryMapping.set(keyword.toLowerCase(), category.id);
+          });
+
+          // Track jean categories
+          if (['MOM', 'SKINNY', 'STRAIGHT', 'WIDELEG', 'BAGGY', 'OXFORD'].includes(categoryName)) {
+            this.jeanCategories.push(category.id);
+          }
+        }
+      }
+
+      this.logger.log(`Category mapping ready: ${this.categoryMapping.size} keywords → ${categories.length} categories`);
+    } catch (error) {
+      this.logger.error('Failed to load category mapping', error);
+      // Continue without mapping - will fall back to text search
+    }
   }
 
   /**
@@ -111,15 +167,63 @@ export class NuvemshopService implements OnModuleInit {
   }
 
   /**
-   * Search products by query (searches name, SKU, description)
+   * Analyze search query and determine best search strategy
+   * Maps natural language terms to category-based or text-based search
+   *
+   * @param query - User's search query
+   * @returns Search strategy with category ID or text search indicator
+   */
+  private analyzeQuery(query: string): {
+    strategy: 'category' | 'text';
+    categoryId?: number;
+    additionalFilter?: string;
+  } {
+    const lowerQuery = query.toLowerCase().trim();
+
+    // Check if query contains mapped category keywords
+    for (const [keyword, categoryId] of this.categoryMapping.entries()) {
+      if (lowerQuery.includes(keyword)) {
+        // Extract additional filter terms (e.g., color from "skinny negro")
+        const additionalFilter = lowerQuery.replace(keyword, '').trim();
+        this.logger.debug(`Query "${query}" matched category keyword: "${keyword}"`);
+        return { strategy: 'category', categoryId, additionalFilter };
+      }
+    }
+
+    // Check for generic jean/pants keywords
+    const jeanKeywords = ['jean', 'jeans', 'pantalon', 'pantalones', 'denim'];
+    if (jeanKeywords.some(k => lowerQuery.includes(k)) && this.jeanCategories.length > 0) {
+      // Remove jean keywords to extract additional filters (color, style, etc.)
+      const additionalFilter = lowerQuery
+        .split(' ')
+        .filter(word => !jeanKeywords.includes(word))
+        .join(' ');
+      this.logger.debug(`Query "${query}" is generic jean query, using default jean category`);
+      return {
+        strategy: 'category',
+        categoryId: this.jeanCategories[0], // Default to MOM category
+        additionalFilter,
+      };
+    }
+
+    // No category match - use text search
+    this.logger.debug(`Query "${query}" will use text search`);
+    return { strategy: 'text' };
+  }
+
+  /**
+   * Search products using intelligent single-strategy approach
+   * Analyzes query and chooses best search method (category or text)
    * This will be exposed as a tool for the AI agent
    *
-   * Smart search features:
-   * - If plural query (ending in 's') returns no results, automatically tries singular
-   * - Case-insensitive search via API
-   * - Only returns published products
+   * Strategy selection:
+   * - If query contains category keywords (mom, skinny, remera, etc.) → Category search
+   * - If query contains generic jean terms → Default jean category (MOM)
+   * - Otherwise → Text search (product name/SKU)
    *
-   * @param query - Search query string
+   * Benefits: Consistent, fast (single API call), predictable behavior
+   *
+   * @param query - User's search query
    * @param limit - Maximum number of results (default: 10)
    * @returns Array of simplified product information
    */
@@ -127,35 +231,43 @@ export class NuvemshopService implements OnModuleInit {
     query: string,
     limit = 10,
   ): Promise<NuvemshopProductSimplified[]> {
-    this.logger.log(`Searching products: ${query}`);
+    this.logger.log(`Searching products: "${query}"`);
 
     try {
-      // First attempt: search with original query
-      let products = await this.client.searchProducts(query, limit);
+      // Analyze query to determine best strategy
+      const { strategy, categoryId, additionalFilter } = this.analyzeQuery(query);
+      let products: NuvemshopProduct[] = [];
 
-      // Smart fallback: if no results and query ends with 's', try singular form
-      if (products.length === 0 && query.toLowerCase().endsWith('s')) {
-        const singularQuery = query.slice(0, -1);
-        this.logger.log(
-          `No results for "${query}", trying singular form: "${singularQuery}"`,
-        );
-        products = await this.client.searchProducts(singularQuery, limit);
+      if (strategy === 'category' && categoryId) {
+        // Category-based search
+        this.logger.log(`Category search → ID ${categoryId}`);
+        products = await this.client.getProducts({
+          category_id: categoryId,
+          per_page: limit,
+          published: true,
+        });
+
+        // Optional: Client-side filter by additional terms (e.g., color)
+        if (products.length > 0 && additionalFilter) {
+          const filtered = products.filter(p => {
+            const name = (extractLanguage(p.name, this.preferredLanguage) || '').toLowerCase();
+            return name.includes(additionalFilter);
+          });
+          if (filtered.length > 0) {
+            products = filtered;
+            this.logger.debug(`Filtered by "${additionalFilter}": ${filtered.length} products`);
+          }
+        }
+      } else {
+        // Text-based search
+        this.logger.log(`Text search → "${query}"`);
+        products = await this.client.searchProducts(query, limit);
       }
 
-      // Additional fallback: if still no results and query ends with 'es', try without 'es'
-      if (products.length === 0 && query.toLowerCase().endsWith('es')) {
-        const singularQuery = query.slice(0, -2);
-        this.logger.log(
-          `No results for "${query}", trying without "es": "${singularQuery}"`,
-        );
-        products = await this.client.searchProducts(singularQuery, limit);
-      }
-
-      this.logger.log(`Found ${products.length} product(s) matching "${query}"`);
-
-      return products.map((product) => this.mapProductToSimplified(product));
+      this.logger.log(`Found ${products.length} product(s) via ${strategy} search`);
+      return products.map(product => this.mapProductToSimplified(product));
     } catch (error) {
-      this.logger.error(`Failed to search products: ${query}`, error);
+      this.logger.error(`Search failed: ${query}`, error);
       throw new Error(
         `Failed to search products: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -179,6 +291,98 @@ export class NuvemshopService implements OnModuleInit {
       this.logger.error(`Failed to get stock for product ${productId}`, error);
       throw new Error(
         `Failed to retrieve product stock: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Search products filtered by size/variant availability
+   * Only returns products that have the requested size in stock
+   *
+   * @param query - Search term (product name, category, etc.)
+   * @param size - Required size/talle (e.g., "42", "38", "M")
+   * @param limit - Maximum number of results to return (default: 10)
+   * @returns Simplified products that have the requested size with stock > 0
+   */
+  async searchProductsWithSize(
+    query: string,
+    size: string,
+    limit = 10,
+  ): Promise<NuvemshopProductSimplified[]> {
+    this.logger.log(`Searching products: "${query}" with size: "${size}"`);
+
+    try {
+      // Step 1: Search products (fetch more than limit to account for filtering)
+      const { strategy, categoryId, additionalFilter } = this.analyzeQuery(query);
+      let products: NuvemshopProduct[] = [];
+
+      if (strategy === 'category' && categoryId) {
+        this.logger.log(`Category search → ID ${categoryId}`);
+        products = await this.client.getProducts({
+          category_id: categoryId,
+          per_page: Math.min(limit * 3, 50), // Fetch 3x limit (max 50) to ensure enough after filtering
+          published: true,
+        });
+
+        // Apply additional text filter if present
+        if (products.length > 0 && additionalFilter) {
+          const filtered = products.filter((p) => {
+            const name = (extractLanguage(p.name, this.preferredLanguage) || '').toLowerCase();
+            return name.includes(additionalFilter);
+          });
+          if (filtered.length > 0) products = filtered;
+        }
+      } else {
+        this.logger.log(`Text search → "${query}"`);
+        products = await this.client.searchProducts(query, Math.min(limit * 3, 50));
+      }
+
+      // Step 2: Filter products by size availability
+      const filtered: NuvemshopProductSimplified[] = [];
+      const normalizedSize = size.toLowerCase().trim();
+
+      for (const product of products) {
+        // Check if any variant has the requested size WITH stock > 0
+        const matchingVariant = product.variants.find((variant) => {
+          if (!variant.stock || variant.stock <= 0) return false;
+
+          // Check if size appears in variant values (multilang support)
+          const hasSize = variant.values.some((value) => {
+            const str = extractLanguage(value, this.preferredLanguage) || '';
+            return str.toLowerCase().includes(normalizedSize);
+          });
+
+          return hasSize;
+        });
+
+        if (matchingVariant) {
+          // Include this product with variant details
+          const simplified = this.mapProductToSimplified(product, {
+            includeVariants: true,
+          });
+
+          // Filter out variants with no stock (so AI doesn't show unavailable sizes)
+          if (simplified.variants) {
+            simplified.variants = simplified.variants.filter(
+              (variant) => variant.stock && variant.stock > 0,
+            );
+          }
+
+          filtered.push(simplified);
+
+          // Stop when we have enough results
+          if (filtered.length >= limit) break;
+        }
+      }
+
+      this.logger.log(
+        `Found ${filtered.length} product(s) with size "${size}" via ${strategy} search`,
+      );
+      return filtered;
+    } catch (error) {
+      this.logger.error(`Search with size failed: ${query}`, error);
+      throw new Error(
+        `Failed to search products with size: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }

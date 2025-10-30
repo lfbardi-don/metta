@@ -77,8 +77,24 @@ const searchProductsSchema = z.object({
 
 export const searchNuvemshopProductsTool = createAgentTool({
   name: 'search_nuvemshop_products',
-  description:
-    'Search products in Nuvemshop by name or SKU. Returns list of matching published products with prices, stock, and images. Only searches active/published products.',
+  description: `Search products in Nuvemshop catalog by name or SKU. Returns list of matching published products with prices, stock, and images.
+
+IMPORTANT - Query Optimization:
+Before searching, transform natural language into concise search terms:
+- Use SINGULAR form: "jean" not "jeans", "remera" not "remeras"
+- Remove articles/prepositions: "jeans de tiro alto" → "jean tiro alto"
+- Keep 2-3 key terms: [product type] + [main attributes] only
+
+Examples:
+  "jeans de tiro alto" → use "jean tiro alto"
+  "remeras negras con cuello" → use "remera negra cuello"
+  "vestido para fiesta" → use "vestido fiesta"
+  "pantalones cómodos" → use "pantalon comodo"
+
+Returns: Published products with name, price, stock, images, description.
+Search covers: product name, SKU, and description fields.
+
+The service automatically applies fallback strategies if no results are found (broader terms, singular forms).`,
   parameters: searchProductsSchema,
   execute: async (params, context) => {
     const { nuvemshopService } = context.services;
@@ -133,6 +149,62 @@ export const getNuvemshopProductStockTool = createAgentTool({
     context.returnedProducts.push(product);
 
     return product;
+  },
+});
+
+/**
+ * Tool: Search Products by Size from Nuvemshop
+ *
+ * Searches for products and ONLY returns those that have the requested size/variant in stock.
+ * This tool performs code-level filtering to ensure customers only see available sizes.
+ *
+ * Use this when the customer specifies a size:
+ * - "Tienen jeans en talle 42?"
+ * - "Jean skinny size 38"
+ * - "Me gustaría ver remeras talle L"
+ * - "Hay disponibilidad en talle 40?"
+ *
+ * IMPORTANT: This tool filters at the code level - products without the requested size
+ * will not be returned at all, preventing errors in showing unavailable items.
+ */
+const searchProductsWithSizeSchema = z.object({
+  query: z
+    .string()
+    .min(2)
+    .describe('Product search term (e.g., "jean", "skinny", "remera negra")'),
+  size: z
+    .string()
+    .min(1)
+    .describe('Required size/talle (e.g., "42", "38", "40", "M", "L")'),
+  limit: z
+    .number()
+    .int()
+    .positive()
+    .max(50)
+    .optional()
+    .describe('Maximum number of results to return (default: 10, max: 50)'),
+});
+
+export const searchNuvemshopProductsWithSizeTool = createAgentTool({
+  name: 'search_nuvemshop_products_with_size',
+  description:
+    'Search products in Nuvemshop that have a specific size/talle in stock. ONLY returns products where the requested size is available. Use when customer specifies a size requirement.',
+  parameters: searchProductsWithSizeSchema,
+  execute: async (params, context) => {
+    const { nuvemshopService } = context.services;
+    const products = await nuvemshopService.searchProductsWithSize(
+      params.query,
+      params.size,
+      params.limit ?? 10,
+    );
+
+    // Add products to context for image extraction
+    if (!context.returnedProducts) {
+      context.returnedProducts = [];
+    }
+    context.returnedProducts.push(...products);
+
+    return products;
   },
 });
 
@@ -572,6 +644,7 @@ export const getNuvemshopCoreTools = () => [
 export const getNuvemshopProductTools = () => [
   getNuvemshopProductTool,
   searchNuvemshopProductsTool,
+  searchNuvemshopProductsWithSizeTool,
   getNuvemshopProductStockTool,
 ];
 
