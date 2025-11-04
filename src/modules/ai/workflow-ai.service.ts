@@ -5,8 +5,6 @@ import { runWorkflow } from './workflows/customer-service.workflow';
 import {
   IncomingMessage,
   MessageContext,
-  OdooProductSimplified,
-  NuvemshopProductSimplified,
 } from '../../common/interfaces';
 import { GuardrailsService } from '../guardrails/guardrails.service';
 import { getGuardrailFallbackMessage } from '../guardrails/guardrail-messages.constant';
@@ -15,10 +13,11 @@ import { resolvePIIPlaceholders } from '../../common/helpers/resolve-pii.helper'
 
 /**
  * Response from AI service with text and optional product images
+ * Note: Workflow currently returns empty products array
  */
 export interface AIServiceResponse {
   response: string;
-  products: Array<OdooProductSimplified | NuvemshopProductSimplified>;
+  products: Array<any>;
 }
 
 /**
@@ -202,14 +201,14 @@ export class WorkflowAIService {
 
       // Convert database messages to AgentInputItem[] format
       const conversationHistory: AgentInputItem[] = historyMessages.map((msg) => ({
-        role: msg.direction === 'incoming' ? 'user' : 'assistant',
+        role: msg.direction === 'incoming' ? ('user' as const) : ('assistant' as const),
         content: [
           {
-            type: 'input_text',
+            type: 'input_text' as const,
             text: msg.content,
           },
         ],
-      }));
+      } as AgentInputItem));
 
       this.logger.log('Workflow context prepared', {
         historyMessages: conversationHistory.length,
@@ -230,7 +229,7 @@ export class WorkflowAIService {
       // TODO: Extract products from workflow execution
       // The workflow doesn't currently track products like the old system
       // This will need to be implemented if product tracking is required
-      const products: Array<OdooProductSimplified | NuvemshopProductSimplified> = [];
+      const products: Array<any> = [];
 
       return { response, products };
     } catch (error) {
