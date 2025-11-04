@@ -200,15 +200,17 @@ export class WorkflowAIService {
           : messages;
 
       // Convert database messages to AgentInputItem[] format
-      const conversationHistory: AgentInputItem[] = historyMessages.map((msg) => ({
-        role: msg.direction === 'incoming' ? ('user' as const) : ('assistant' as const),
-        content: [
-          {
-            type: 'input_text' as const,
-            text: msg.content,
-          },
-        ],
-      } as AgentInputItem));
+      // Note: User messages use 'input_text', assistant messages use 'output_text'
+      const conversationHistory: AgentInputItem[] = historyMessages.map((msg) => {
+        const role = msg.direction === 'incoming' ? ('user' as const) : ('assistant' as const);
+
+        return {
+          role,
+          content: role === 'user'
+            ? [{ type: 'input_text' as const, text: msg.content }]
+            : [{ type: 'output_text' as const, text: msg.content }],
+        } as AgentInputItem;
+      });
 
       this.logger.log('Workflow context prepared', {
         historyMessages: conversationHistory.length,

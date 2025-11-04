@@ -39,7 +39,7 @@ const mcp = hostedMcpTool({
     "get_nuvemshop_order_tracking",
     "get_nuvemshop_payment_history"
   ],
-  requireApproval: "always"
+  requireApproval: "never"
 })
 const mcp1 = hostedMcpTool({
   serverLabel: "NuvemShop_Products",
@@ -52,7 +52,7 @@ const mcp1 = hostedMcpTool({
     "search_nuvemshop_products_by_category",
     "search_nuvemshop_product_by_sku"
   ],
-  requireApproval: "always",
+  requireApproval: "never",
   serverUrl: "https://nuvemshop-products.luisfbardi.workers.dev/sse"
 })
 const fileSearch = fileSearchTool([
