@@ -16,10 +16,10 @@ import { z } from "zod";
  *
  * 2. Authentication:
  *    - Orders Agent instructions reference check_auth_status() and verify_dni()
- *    - These tools are NOT yet implemented in MCP servers
- *    - Order tools requiring authentication will return errors
- *    - Non-protected tools (products, store info, FAQ) work normally
- *    - Auth will be added to MCP servers in future update
+ *    - These tools ARE implemented in MCP Orders server with Cloudflare KV sessions
+ *    - Sessions last 30 minutes (automatic TTL expiration)
+ *    - DNI verification: Look up customer by email, compare last 3 digits
+ *    - All order tools require valid session before execution
  *
  * 3. Conversation History:
  *    - WorkflowAIService loads history from database
