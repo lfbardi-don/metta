@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { QueueService } from './queue.service';
 import {
   SimplifiedSQSMessage,
@@ -6,6 +7,7 @@ import {
   IncomingMessage,
 } from '../../common/interfaces';
 import { AIService } from '../ai/ai.service';
+import { WorkflowAIService } from '../ai/workflow-ai.service';
 import { ChatwootService } from '../integrations/chatwoot/chatwoot.service';
 import { PersistenceService } from '../persistence/persistence.service';
 import { MessageBatcherService, MessageBatch } from './message-batcher.service';
@@ -14,10 +16,13 @@ import { MessageBatcherService, MessageBatch } from './message-batcher.service';
 export class QueueProcessor implements OnModuleInit {
   private readonly logger = new Logger(QueueProcessor.name);
   private isProcessing = false;
+  private useWorkflowAI: boolean;
 
   constructor(
+    private readonly configService: ConfigService,
     private readonly queueService: QueueService,
     private readonly aiService: AIService,
+    private readonly workflowAIService: WorkflowAIService,
     private readonly chatwootService: ChatwootService,
     private readonly persistenceService: PersistenceService,
     private readonly messageBatcher: MessageBatcherService,
@@ -25,6 +30,10 @@ export class QueueProcessor implements OnModuleInit {
 
   async onModuleInit() {
     this.logger.log('Queue processor initialized');
+
+    // Read feature flag for AI system selection
+    this.useWorkflowAI = this.configService.get<boolean>('USE_WORKFLOW_AI', false);
+    this.logger.log(`AI System: ${this.useWorkflowAI ? 'WORKFLOW (New)' : 'MULTI-AGENT (Current)'}`);
 
     // Auto-start processing on module initialization
     this.startProcessing();
@@ -283,9 +292,10 @@ export class QueueProcessor implements OnModuleInit {
       }
 
       // 3. Process ALL messages together with AI
-      this.logger.log('Processing batch with AI service');
-      const { response, products } =
-        await this.aiService.processMessages(incomingMessages);
+      this.logger.log(`Processing batch with ${this.useWorkflowAI ? 'Workflow' : 'Multi-Agent'} AI service`);
+      const { response, products } = this.useWorkflowAI
+        ? await this.workflowAIService.processMessage(incomingMessages[incomingMessages.length - 1]) // Workflow processes last message
+        : await this.aiService.processMessages(incomingMessages); // Old system processes all messages
 
       // Log product count for debugging
       if (products.length > 0) {

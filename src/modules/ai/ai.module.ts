@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AIService } from './ai.service';
+import { WorkflowAIService } from './workflow-ai.service';
 import { GuardrailsModule } from '../guardrails/guardrails.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { AuthenticationModule } from '../authentication/authentication.module';
@@ -10,7 +11,7 @@ import { AuthenticationModule } from '../authentication/authentication.module';
     IntegrationsModule, // Import integrations to access OdooService + NuvemshopService
     AuthenticationModule, // Import authentication for DNI verification
   ],
-  providers: [AIService],
-  exports: [AIService],
+  providers: [AIService, WorkflowAIService],
+  exports: [AIService, WorkflowAIService],
 })
 export class AIModule {}
