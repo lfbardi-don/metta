@@ -12,6 +12,7 @@ import { GuardrailsService } from '../guardrails/guardrails.service';
 import { getGuardrailFallbackMessage } from '../guardrails/guardrail-messages.constant';
 import { PersistenceService } from '../persistence/persistence.service';
 import { resolvePIIPlaceholders } from '../../common/helpers/resolve-pii.helper';
+import { ProductPresentationService } from './product-presentation.service';
 
 /**
  * Response from AI service with text and optional product images
@@ -45,6 +46,7 @@ export class WorkflowAIService {
     private readonly configService: ConfigService,
     private readonly guardrailsService: GuardrailsService,
     private readonly persistenceService: PersistenceService,
+    private readonly productPresentationService: ProductPresentationService,
   ) {}
 
   /**
@@ -235,11 +237,36 @@ export class WorkflowAIService {
         stateProductsCount: conversationState?.state?.products?.length || 0,
       });
 
-      // Run workflow with history and state
+      // 5. Detect product presentation context
+      const queryContext = this.productPresentationService.detectQueryContext(
+        message,
+        conversationState || null
+      );
+
+      const presentationMode = this.productPresentationService.determinePresentationMode(
+        queryContext,
+        conversationState || null
+      );
+
+      const presentationInstructions = this.productPresentationService.generatePresentationInstructions(
+        presentationMode,
+        queryContext.mentionedProducts
+      );
+
+      this.logger.log('Product presentation context determined', {
+        queryType: queryContext.type,
+        presentationMode,
+        mentionedProducts: queryContext.mentionedProducts.length,
+        isFollowUp: queryContext.isFollowUp
+      });
+
+      // Run workflow with history, state, and presentation instructions
       const result = await runWorkflow({
         input_as_text: message,
         conversationHistory,
         conversationState: conversationState || undefined,
+        presentationMode,
+        presentationInstructions,
       });
 
       this.logger.log('Workflow completed successfully');

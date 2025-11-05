@@ -1,6 +1,7 @@
 import { hostedMcpTool, fileSearchTool, Agent, AgentInputItem, Runner, withTrace } from "@openai/agents";
 import { z } from "zod";
 import { ConversationState } from "../../../common/interfaces";
+import { PresentationMode } from "../templates/product-presentation.templates";
 
 /**
  * Metta Customer Service Workflow
@@ -409,12 +410,18 @@ Before ending conversation:
 });
 
 /**
- * Generate Products Agent with conversation state context
+ * Generate Products Agent with conversation state context and presentation mode
  *
  * @param conversationState - Current conversation state with product mentions
- * @returns Agent configured with state-aware instructions
+ * @param presentationMode - How products should be presented (FULL_CARD, SIZE_ONLY, etc.)
+ * @param presentationInstructions - Specific instructions for presentation format
+ * @returns Agent configured with state-aware and context-aware instructions
  */
-const createProductsAgent = (conversationState: ConversationState | null) => {
+const createProductsAgent = (
+  conversationState: ConversationState | null,
+  presentationMode?: PresentationMode,
+  presentationInstructions?: string
+) => {
   // Generate state context string if products exist in state
   let stateContext = '';
 
@@ -442,10 +449,24 @@ ${productsList}
 `;
   }
 
+  // Add presentation instructions if provided
+  let presentationContext = '';
+  if (presentationMode && presentationInstructions) {
+    presentationContext = `
+
+## Product Presentation Instructions
+
+${presentationInstructions}
+
+**CRITICAL:** Follow these presentation instructions exactly. The format you use depends on the conversation context to avoid unnecessary repetition.
+
+`;
+  }
+
   return new Agent({
     name: "Products Agent",
     instructions: `# Luna – Products Agent
-${stateContext}
+${stateContext}${presentationContext}
 ## Role & Purpose
 You are **Luna**, la estilista de Metta. You act as a personal stylist helping customers find the right products using real-time catalog data. You guide on size and fit, and make people feel confident about their choices.
 
@@ -957,6 +978,8 @@ type WorkflowInput = {
   input_as_text: string;
   conversationHistory?: AgentInputItem[];
   conversationState?: ConversationState;
+  presentationMode?: PresentationMode;
+  presentationInstructions?: string;
 };
 
 
@@ -1019,8 +1042,12 @@ export const runWorkflow = async (workflow: WorkflowInput) => {
       };
       return ordersAgentResult;
     } else if (mettaClassifierResult.output_parsed.intent == "PRODUCT_INFO") {
-      // Create Products Agent with current conversation state
-      const productsAgent = createProductsAgent(state.conversationState);
+      // Create Products Agent with current conversation state and presentation mode
+      const productsAgent = createProductsAgent(
+        state.conversationState,
+        workflow.presentationMode,
+        workflow.presentationInstructions
+      );
 
       const productsAgentResultTemp = await runner.run(
         productsAgent,
