@@ -23,7 +23,7 @@ export class QueueProcessor implements OnModuleInit {
     private readonly chatwootService: ChatwootService,
     private readonly persistenceService: PersistenceService,
     private readonly messageBatcher: MessageBatcherService,
-  ) {}
+  ) { }
 
   async onModuleInit() {
     this.logger.log('Queue processor initialized');
@@ -216,9 +216,9 @@ export class QueueProcessor implements OnModuleInit {
         stack: error.stack,
         payload: payload
           ? {
-              messageId: payload.messageId,
-              conversationId: payload.conversationId,
-            }
+            messageId: payload.messageId,
+            conversationId: payload.conversationId,
+          }
           : 'unknown',
       });
 
@@ -337,7 +337,7 @@ export class QueueProcessor implements OnModuleInit {
       throw error;
     } finally {
       // Stop typing indicator when processing completes (success or failure)
-      await this.chatwootService.setTypingStatus(conversationId, false);
+      this.chatwootService.setTypingStatus(conversationId, false);
     }
   }
 

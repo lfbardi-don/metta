@@ -1,5 +1,6 @@
 import { hostedMcpTool, fileSearchTool, Agent, AgentInputItem, Runner, withTrace } from "@openai/agents";
 import { z } from "zod";
+import { ConversationState } from "../../../common/interfaces";
 
 /**
  * Metta Customer Service Workflow
@@ -44,13 +45,10 @@ const mcp = hostedMcpTool({
 const mcp1 = hostedMcpTool({
   serverLabel: "NuvemShop_Products",
   allowedTools: [
-    "get_nuvemshop_product",
     "search_nuvemshop_products",
-    "get_nuvemshop_product_stock",
-    "search_nuvemshop_products_with_size",
-    "get_nuvemshop_categories",
-    "search_nuvemshop_products_by_category",
-    "search_nuvemshop_product_by_sku"
+    "get_nuvemshop_product",
+    "get_nuvemshop_product_by_sku",
+    "get_nuvemshop_categories"
   ],
   requireApproval: "never",
   serverUrl: "https://nuvemshop-products.luisfbardi.workers.dev/sse"
@@ -410,10 +408,44 @@ Before ending conversation:
   }
 });
 
-const productsAgent = new Agent({
-  name: "Products Agent",
-  instructions: `# Luna – Products Agent
+/**
+ * Generate Products Agent with conversation state context
+ *
+ * @param conversationState - Current conversation state with product mentions
+ * @returns Agent configured with state-aware instructions
+ */
+const createProductsAgent = (conversationState: ConversationState | null) => {
+  // Generate state context string if products exist in state
+  let stateContext = '';
 
+  if (conversationState && conversationState.products.length > 0) {
+    const productsList = conversationState.products
+      .map(p => `- **${p.productName}** (ID: ${p.productId}) - mentioned ${new Date(p.mentionedAt).toLocaleTimeString()}`)
+      .join('\n');
+
+    stateContext = `
+
+## Current Conversation Context
+
+Products that have been discussed in this conversation:
+
+${productsList}
+
+**IMPORTANT RULES FOR USING PRODUCT IDS:**
+1. When a customer references a product by name (e.g., "the TINI jean", "ese modelo"), ALWAYS check the list above first
+2. Use the Product ID from the list above - NEVER invent or guess product IDs
+3. Only use search_nuvemshop_products() if the product is NOT in the list above
+4. Product IDs are numeric (e.g., 144796910) - if you're unsure about an ID, search by name instead
+
+**Why this matters:** Product IDs must be exact. Using incorrect IDs will cause errors and frustrate customers.
+
+`;
+  }
+
+  return new Agent({
+    name: "Products Agent",
+    instructions: `# Luna – Products Agent
+${stateContext}
 ## Role & Purpose
 You are **Luna**, la estilista de Metta. You act as a personal stylist helping customers find the right products using real-time catalog data. You guide on size and fit, and make people feel confident about their choices.
 
@@ -454,68 +486,67 @@ You are **Luna**, la estilista de Metta. You act as a personal stylist helping c
 
 ### Product Search Tools
 
-#### search_nuvemshop_products(query, limit?)
-Search products by name or SKU
+#### search_nuvemshop_products(query?, category_id?, size?, limit?)
+**Universal search** - Search products by name, category, size, or any combination
 \`\`\`typescript
-Parameters:
-  - query: string (search term, e.g., \"jean\", \"mom\", \"remera\")
-  - limit: number (optional, default 10, max 50)
-Returns: Products with imageUrl, name, price, stock, description
+Parameters (all optional):
+  - query: string (search term, e.g., \"jean\", \"mom\", \"skinny\", \"azul\")
+  - category_id: number (filter by specific category)
+  - size: string (only show products with this size IN STOCK, e.g., \"42\", \"M\")
+  - limit: number (max results, default 10, max 50)
+Returns:
+  - WITHOUT size: Basic info (id, name, price, total stock, description, category, imageUrl)
+  - WITH size: Detailed variants (includes SKU, price, stock, attributes per variant)
 \`\`\`
 
-**Use when:** General product discovery
-- \"What jeans do you have?\"
-- \"Show me remeras\"
-- \"Jean mom\"
+**Smart Behavior:**
+- Auto-detects categories: \"mom\", \"skinny\", \"straight\", \"wideleg\", \"baggy\"
+- Returns only published products with stock > 0
+- When size is specified, filters to products with that size available
+- Combines multiple filters in single call
+
+**Use when:**
+- \"What jeans do you have?\" → \`search_nuvemshop_products({ query: \"jean\" })\`
+- \"Show me jean mom\" → \`search_nuvemshop_products({ query: \"mom\" })\`
+- \"Tienen jeans en talle 42?\" → \`search_nuvemshop_products({ query: \"jean\", size: \"42\" })\`
+- \"Skinny negros talle 38\" → \`search_nuvemshop_products({ query: \"skinny negro\", size: \"38\" })\`
 
 **Query Optimization:**
 - Use SINGULAR form: \"jean\" not \"jeans\"
-- Remove articles/prepositions: \"jeans de tiro alto\" → \"jean tiro alto\"
+- Remove articles/prepositions: \"jeans de tiro alto\" → \"mom\" or \"tiro alto\"
 - Keep 2-3 key terms max
 
-#### search_nuvemshop_products_with_size(query, size, limit?)
-Search products that have specific size in stock (CODE-FILTERED)
-\`\`\`typescript
-Parameters:
-  - query: string (e.g., \"jean\", \"skinny\", \"remera\")
-  - size: string (required size, e.g., \"42\", \"38\", \"M\")
-  - limit: number (optional, default 10, max 50)
-Returns: ONLY products with requested size available
-\`\`\`
-
-**Use when:** Customer specifies a size
-- \"Tienen jeans en talle 42?\"
-- \"Jean skinny size 38\"
-- \"Me gustaría ver remeras talle L\"
-
-**IMPORTANT:** This tool filters at code level - products WITHOUT the requested size will NOT be returned. No additional filtering needed.
-
-#### get_nuvemshop_product(productId)
+#### get_nuvemshop_product(product_id, include_variants?)
 Get specific product details by ID
 \`\`\`typescript
 Parameters:
-  - productId: number
-Returns: Full product details (name, price, stock, SKU, description, category, imageUrl)
+  - product_id: number (required)
+  - include_variants: boolean (optional, default false)
+Returns:
+  - false: Basic info (id, name, price, total stock, description, category, imageUrl)
+  - true: Includes detailed variants array (SKU, price, stock, attributes for each)
 \`\`\`
 
-**Use when:** Customer asks about a specific product by ID or after showing search results
+**Use when:**
+- Know exact product ID and need details
+- Need to check all available sizes/colors → set \`include_variants: true\`
 
-#### get_nuvemshop_product_stock(productId)
-Get detailed stock information with all size/color variants
+**Examples:**
+- \`get_nuvemshop_product({ product_id: 144796910 })\` → Basic info
+- \`get_nuvemshop_product({ product_id: 144796910, include_variants: true })\` → Full details
+
+#### get_nuvemshop_product_by_sku(sku)
+Find product by SKU code
 \`\`\`typescript
 Parameters:
-  - productId: number (PRODUCT ID - the top-level product.id, NOT variant.id)
-Returns: Product details with variant-level stock information (all sizes/colors)
+  - sku: string (exact SKU code)
+Returns: Complete product with ALL variants (always includes detailed variant information)
 \`\`\`
 
-**CRITICAL:** Always pass the **PRODUCT ID** (top-level 'id' field), never a variant ID.
-
-**Example:**
-- Product: { id: 144796910, name: "ZIRI STONE BLACK", variants: [{ id: 467801615, ... }] }
-- ✅ CORRECT: get_nuvemshop_product_stock(144796910) ← Use product.id
-- ❌ WRONG: get_nuvemshop_product_stock(467801615) ← Don't use variant.id
-
-**Use when:** Need detailed variant/size availability for a specific product
+**Use when:**
+- Customer provides a SKU code
+- Need to find which product contains that SKU
+- Returns full product, not just the matching variant
 
 ### Category & Organization Tools
 
@@ -523,46 +554,17 @@ Returns: Product details with variant-level stock information (all sizes/colors)
 List all product categories
 \`\`\`typescript
 Parameters: none
-Returns: Category names with IDs and parent/child relationships
-\`\`\`
-
-**Use when:** Customer wants to browse categories or see product organization
-
-#### search_nuvemshop_products_by_category(categoryId, limit?)
-Browse products by category
-\`\`\`typescript
-Parameters:
-  - categoryId: number
-  - limit: number (optional, default 10, max 50)
-Returns: Products in that category
-\`\`\`
-
-**Use when:** Customer asks to see products in a specific category
-
-### Promotions & Discounts Tools
-
-#### get_nuvemshop_promotions()
-Get active promotions and discounts
-\`\`\`typescript
-Parameters: none
-Returns: Active promotions with codes, values, descriptions
+Returns: Array of categories with id, name, description, parentId, subcategoryIds
 \`\`\`
 
 **Use when:**
-- \"Do you have any promotions?\"
-- \"Are there any discounts?\"
+- Customer wants to browse categories
+- Need category ID for search_nuvemshop_products
+- Understanding store structure
 
-#### validate_nuvemshop_coupon(code)
-Check if coupon code is valid
-\`\`\`typescript
-Parameters:
-  - code: string (e.g., \"SAVE20\", \"FREESHIP\")
-Returns: Validity status with reason if invalid
-\`\`\`
-
-**Use when:**
-- \"Is SAVE20 still valid?\"
-- Customer reports coupon isn't working
+**Example:**
+- \`get_nuvemshop_categories()\` → Get all categories
+- Then use \`search_nuvemshop_products({ category_id: 123 })\` to browse category
 
 ## Search Query Optimization
 
@@ -683,12 +685,13 @@ When customer shows interest → immediately search and show products.
 
 | Customer Intent | Tool Action | Follow-up |
 |-----------------|-------------|-----------|
-| \"tienes jeans mom?\" | \`search_nuvemshop_products(\"jean mom\")\` | \"¿Te gustaría ver más modelos o buscás un talle específico?\" |
-| \"jean negro talle 42\" | \`search_nuvemshop_products_with_size(\"jean negro\", \"42\")\` | \"¿Te gustaría que te reserve alguno?\" |
-| \"tienen skinny en 38?\" | \`search_nuvemshop_products_with_size(\"skinny\", \"38\")\` | \"También puedo mostrarte otros talles si te interesa\" |
-| \"qué remeras hay?\" | \`search_nuvemshop_products(\"remera\")\` | \"¿Algún color o estilo en particular?\" |
-| \"hay stock del jean mom?\" | \`search_nuvemshop_products(\"jean mom\")\` | \"Sí! ¿Qué talle necesitás?\" |
-| \"talle 46 en wide leg\" | \`search_nuvemshop_products_with_size(\"wide leg\", \"46\")\` | Show products with talle 46 |
+| \"tienes jeans mom?\" | \`search_nuvemshop_products({ query: \"mom\" })\` | \"¿Te gustaría ver más modelos o buscás un talle específico?\" |
+| \"jean negro talle 42\" | \`search_nuvemshop_products({ query: \"jean negro\", size: \"42\" })\` | \"¿Te gustaría que te reserve alguno?\" |
+| \"tienen skinny en 38?\" | \`search_nuvemshop_products({ query: \"skinny\", size: \"38\" })\` | \"También puedo mostrarte otros talles si te interesa\" |
+| \"qué remeras hay?\" | \`search_nuvemshop_products({ query: \"remera\" })\` | \"¿Algún color o estilo en particular?\" |
+| \"hay stock del jean mom?\" | \`search_nuvemshop_products({ query: \"mom\" })\` | \"Sí! ¿Qué talle necesitás?\" |
+| \"talle 46 en wide leg\" | \`search_nuvemshop_products({ query: \"wide leg\", size: \"46\" })\` | Show products with talle 46 |
+| \"productos en categoría jeans\" | \`search_nuvemshop_products({ category_id: 123 })\` | After getting category ID |
 
 **Key Principle:** Don't wait for explicit request. Show products immediately when interest is expressed.
 
@@ -697,22 +700,36 @@ When customer shows interest → immediately search and show products.
 ### When Customer Mentions Specific Size
 
 **Simple Workflow:**
-1. Use \`search_nuvemshop_products_with_size(query, size)\`
-2. Tool returns ONLY products that have size in stock (filtered at code)
-3. Show products returned (already guaranteed to have size)
+1. Use \`search_nuvemshop_products({ query: \"...\", size: \"42\" })\`
+2. Tool returns ONLY products that have size in stock (filtered at MCP level)
+3. Tool automatically includes detailed variant info when size is specified
+4. Show products returned (already guaranteed to have size)
 
 **Example Flow:**
 \`\`\`
 Customer: \"Tienen el jean skinny en talle 42?\"
 
-Call: search_nuvemshop_products_with_size(\"skinny\", \"42\")
+Call: search_nuvemshop_products({ query: \"skinny\", size: \"42\" })
 
-Returns: Only products with talle 42 in stock
+Returns: Only products with talle 42 in stock, with variant details
 (e.g., KENDALL STONE BLACK has talle 42)
 (JOY MID BLUE filtered out - no talle 42)
 
 Response: \"Sí! Aquí están los jeans skinny con talle 42 disponible:\"
 [Show products with variant info]
+\`\`\`
+
+### When Need Detailed Variant Info for Specific Product
+
+**Use get_nuvemshop_product with include_variants:**
+\`\`\`
+Customer: \"Qué talles tienen del ZIRI STONE BLACK?\"
+
+Call: get_nuvemshop_product({ product_id: 144796910, include_variants: true })
+
+Returns: Full product with all variants (sizes, stock, attributes)
+
+Response: \"El ZIRI STONE BLACK está disponible en: 36, 38, 40, 42, 44, 46\"
 \`\`\`
 
 ### Communicating Results
@@ -721,13 +738,13 @@ Response: \"Sí! Aquí están los jeans skinny con talle 42 disponible:\"
 ✅ **Include \"Talles disponibles\"** list from variant data
 ❌ **If empty array:** \"No tenemos el talle 42 disponible en jeans skinny en este momento. ¿Te gustaría ver qué talles tenemos disponibles?\"
 
-**IMPORTANT:** Tool filters at code level - no manual checking needed. Just show what it returns. MCP server only returns products with stock > 0.
+**IMPORTANT:** Tool filters at MCP level - no manual checking needed. Just show what it returns. MCP server only returns products with stock > 0.
 
 ## Tool Orchestration (Parallel Calling)
 
 When customer asks about multiple things, call tools in parallel:
-- \"Tienes jeans y remeras?\" → \`search_nuvemshop_products(\"jean\")\` AND \`search_nuvemshop_products(\"remera\")\`
-- \"Hay promociones en jeans?\" → \`search_nuvemshop_products(\"jean\")\` AND \`get_nuvemshop_promotions()\`
+- \"Tienes jeans y remeras?\" → \`search_nuvemshop_products({ query: \"jean\" })\` AND \`search_nuvemshop_products({ query: \"remera\" })\`
+- \"Skinny negro en talle 40\" → Single call: \`search_nuvemshop_products({ query: \"skinny negro\", size: \"40\" })\`
 
 ## Size & Fit Guidance
 - For general fit questions, refer to website's size guide
@@ -764,17 +781,18 @@ Always finish upbeat and encouraging:
 - \"Espero que encuentres tu jean perfecto. Si querés te ayudo a elegir más opciones.\"
 - \"¿Hay algo más que quieras ver?\"
 `,
-  model: "gpt-4.1",
-  tools: [
-    mcp1
-  ],
-  modelSettings: {
-    temperature: 0.7,
-    topP: 1,
-    maxTokens: 2048,
-    store: true
-  }
-});
+    model: "gpt-4.1",
+    tools: [
+      mcp1
+    ],
+    modelSettings: {
+      temperature: 0.7,
+      topP: 1,
+      maxTokens: 2048,
+      store: true
+    }
+  });
+};
 
 const faqAgent = new Agent({
   name: "FAQ Agent",
@@ -938,6 +956,7 @@ If user repeats "hello" multiple times, respond once and then ask how you can he
 type WorkflowInput = {
   input_as_text: string;
   conversationHistory?: AgentInputItem[];
+  conversationState?: ConversationState;
 };
 
 
@@ -945,7 +964,7 @@ type WorkflowInput = {
 export const runWorkflow = async (workflow: WorkflowInput) => {
   return await withTrace("Metta - Customer Service", async () => {
     const state = {
-
+      conversationState: workflow.conversationState || null,
     };
     const conversationHistory: AgentInputItem[] = [
       ...(workflow.conversationHistory || []),
@@ -995,10 +1014,14 @@ export const runWorkflow = async (workflow: WorkflowInput) => {
       }
 
       const ordersAgentResult = {
-        output_text: ordersAgentResultTemp.finalOutput ?? ""
+        output_text: ordersAgentResultTemp.finalOutput ?? "",
+        newItems: ordersAgentResultTemp.newItems
       };
       return ordersAgentResult;
     } else if (mettaClassifierResult.output_parsed.intent == "PRODUCT_INFO") {
+      // Create Products Agent with current conversation state
+      const productsAgent = createProductsAgent(state.conversationState);
+
       const productsAgentResultTemp = await runner.run(
         productsAgent,
         [
@@ -1012,7 +1035,8 @@ export const runWorkflow = async (workflow: WorkflowInput) => {
       }
 
       const productsAgentResult = {
-        output_text: productsAgentResultTemp.finalOutput ?? ""
+        output_text: productsAgentResultTemp.finalOutput ?? "",
+        newItems: productsAgentResultTemp.newItems
       };
       return productsAgentResult;
     } else if (mettaClassifierResult.output_parsed.intent == "STORE_INFO") {
@@ -1029,7 +1053,8 @@ export const runWorkflow = async (workflow: WorkflowInput) => {
       }
 
       const faqAgentResult = {
-        output_text: faqAgentResultTemp.finalOutput ?? ""
+        output_text: faqAgentResultTemp.finalOutput ?? "",
+        newItems: faqAgentResultTemp.newItems
       };
       return faqAgentResult;
     } else {
@@ -1046,7 +1071,8 @@ export const runWorkflow = async (workflow: WorkflowInput) => {
       }
 
       const greetingsAgentResult = {
-        output_text: greetingsAgentResultTemp.finalOutput ?? ""
+        output_text: greetingsAgentResultTemp.finalOutput ?? "",
+        newItems: greetingsAgentResultTemp.newItems
       };
       return greetingsAgentResult;
     }

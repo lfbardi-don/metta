@@ -147,7 +147,7 @@ export class MessageBatcherService implements OnModuleDestroy {
       );
 
       // Start typing indicator immediately for user feedback
-      await this.chatwootService.setTypingStatus(conversationId, true);
+      this.chatwootService.setTypingStatus(conversationId, true);
     } else {
       // Additional message - add to existing batch
       const batch = this.batches.get(conversationId)!;
