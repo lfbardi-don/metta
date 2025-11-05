@@ -59,7 +59,7 @@ model AuthSession {
 model ConversationState {
   id             String   @id @default(uuid())
   conversationId String   @unique
-  products       Json? // Array of ProductMention objects (productId, productName, mentionedAt, context)
+  state          Json? // State object: { products: ProductMention[] }
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

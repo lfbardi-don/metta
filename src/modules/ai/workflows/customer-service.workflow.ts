@@ -418,8 +418,8 @@ const createProductsAgent = (conversationState: ConversationState | null) => {
   // Generate state context string if products exist in state
   let stateContext = '';
 
-  if (conversationState && conversationState.products.length > 0) {
-    const productsList = conversationState.products
+  if (conversationState && conversationState.state.products.length > 0) {
+    const productsList = conversationState.state.products
       .map(p => `- **${p.productName}** (ID: ${p.productId}) - mentioned ${new Date(p.mentionedAt).toLocaleTimeString()}`)
       .join('\n');
 

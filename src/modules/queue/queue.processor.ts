@@ -287,7 +287,7 @@ export class QueueProcessor implements OnModuleInit {
 
       // 3. Process with Workflow AI
       this.logger.log('Processing batch with Workflow AI service');
-      const { response, products } = await this.workflowAIService.processMessage(
+      const { response, products, metadata } = await this.workflowAIService.processMessage(
         incomingMessages[incomingMessages.length - 1]
       );
 
@@ -305,6 +305,7 @@ export class QueueProcessor implements OnModuleInit {
         conversationId,
         content: response,
         messageType: 'text' as const,
+        metadata,
       };
       await this.chatwootService.sendMessage(outgoingMessage);
 

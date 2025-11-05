@@ -82,7 +82,7 @@ export class PersistenceService {
           content: message.content,
           direction: 'outgoing',
           messageType: message.messageType,
-          metadata: {},
+          metadata: message.metadata || {},
         },
       });
 
@@ -184,17 +184,17 @@ export class PersistenceService {
       if (!state) return null;
 
       // Prisma automatically deserializes JSON - just need type assertion
-      const products = (state.products || []) as unknown as ProductMention[];
+      const stateData = (state.state || { products: [] }) as unknown as { products: ProductMention[] };
 
       this.logger.log('Retrieved conversation state', {
         conversationId,
         hasState: true,
-        productsCount: products.length,
+        productsCount: stateData.products.length,
       });
 
       return {
         ...state,
-        products,
+        state: stateData,
       };
     } catch (error) {
       this.logger.error('Failed to retrieve conversation state', {
@@ -227,9 +227,10 @@ export class PersistenceService {
       // Merge products (deduplicate by productId)
       let mergedProducts: ProductMention[] = [];
 
-      if (existingState?.products) {
+      if (existingState?.state) {
         // Prisma automatically deserializes JSON - just need type assertion
-        const existingProducts = (existingState.products || []) as unknown as ProductMention[];
+        const stateData = existingState.state as unknown as { products: ProductMention[] };
+        const existingProducts = stateData.products || [];
         const existingIds = new Set(existingProducts.map((p) => p.productId));
 
         // Keep existing products and add only new ones
@@ -241,15 +242,18 @@ export class PersistenceService {
         mergedProducts = newProducts;
       }
 
+      // Build new state object
+      const newState = { products: mergedProducts };
+
       // Upsert state
       await this.prisma.conversationState.upsert({
         where: { conversationId },
         update: {
-          products: mergedProducts as any, // Prisma Json type
+          state: newState as any, // Prisma Json type
         },
         create: {
           conversationId,
-          products: mergedProducts as any, // Prisma Json type
+          state: newState as any, // Prisma Json type
         },
       });
 

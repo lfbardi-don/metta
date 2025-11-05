@@ -20,6 +20,7 @@ import { resolvePIIPlaceholders } from '../../common/helpers/resolve-pii.helper'
 export interface AIServiceResponse {
   response: string;
   products: Array<any>;
+  metadata?: Record<string, any>;
 }
 
 /**
@@ -131,9 +132,9 @@ export class WorkflowAIService {
       context.conversationId,
     );
 
-    if (conversationState && conversationState.products.length > 0) {
+    if (conversationState && conversationState.state.products.length > 0) {
       this.logger.log(
-        `Loaded conversation state with ${conversationState.products.length} product(s)`,
+        `Loaded conversation state with ${conversationState.state.products.length} product(s)`,
       );
     }
 
@@ -231,7 +232,7 @@ export class WorkflowAIService {
         historyMessages: conversationHistory.length,
         totalMessages: conversationHistory.length + 1, // +1 for current message
         hasState: !!conversationState,
-        stateProductsCount: conversationState?.products?.length || 0,
+        stateProductsCount: conversationState?.state?.products?.length || 0,
       });
 
       // Run workflow with history and state
@@ -305,7 +306,18 @@ export class WorkflowAIService {
         );
       }
 
-      return { response, products };
+      // Retrieve conversation state to include in message metadata
+      const updatedConversationState = await this.persistenceService.getConversationState(
+        context.conversationId,
+      );
+
+      return {
+        response,
+        products,
+        metadata: {
+          state: updatedConversationState?.state || { products: [] }
+        }
+      };
     } catch (error) {
       this.logger.error('Workflow error', error.stack);
       throw new Error(`Workflow AI Service Error: ${error.message}`);

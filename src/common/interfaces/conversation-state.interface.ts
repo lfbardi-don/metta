@@ -20,7 +20,7 @@ export interface ProductMention {
  * Conversation state tracking
  * Persists product context across messages to prevent LLM hallucination
  *
- * Note: products field is stored as JSONB in PostgreSQL.
+ * Note: state field is stored as JSONB in PostgreSQL.
  * Prisma automatically serializes/deserializes - just use type assertion when reading.
  */
 export interface ConversationState {
@@ -30,8 +30,10 @@ export interface ConversationState {
   /** Conversation ID (unique) */
   conversationId: string;
 
-  /** Products mentioned in this conversation (stored as JSONB) */
-  products: ProductMention[];
+  /** State object containing products and future context (stored as JSONB) */
+  state: {
+    products: ProductMention[];
+  };
 
   /** Created timestamp */
   createdAt: Date;
@@ -47,10 +49,10 @@ export function findProductByName(
   state: ConversationState | null,
   searchName: string
 ): ProductMention | null {
-  if (!state || !state.products.length) return null;
+  if (!state || !state.state?.products?.length) return null;
 
   const searchLower = searchName.toLowerCase();
-  return state.products.find(p =>
+  return state.state.products.find(p =>
     p.productName.toLowerCase().includes(searchLower)
   ) || null;
 }
@@ -62,7 +64,7 @@ export function findProductById(
   state: ConversationState | null,
   productId: number
 ): ProductMention | null {
-  if (!state || !state.products.length) return null;
+  if (!state || !state.state?.products?.length) return null;
 
-  return state.products.find(p => p.productId === productId) || null;
+  return state.state.products.find(p => p.productId === productId) || null;
 }

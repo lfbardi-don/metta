@@ -14,6 +14,7 @@ export interface OutgoingMessage {
   conversationId: string;
   content: string;
   messageType: 'text' | 'interactive';
+  metadata?: Record<string, any>;
 }
 
 /**
