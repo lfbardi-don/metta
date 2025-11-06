@@ -1,6 +1,7 @@
 import { hostedMcpTool, fileSearchTool, Agent, AgentInputItem, Runner, withTrace } from "@openai/agents";
 import { z } from "zod";
 import { ConversationState } from "../../../common/interfaces";
+import { UseCase } from "../../../common/interfaces/use-case.interface";
 import { PresentationMode } from "../templates/product-presentation.templates";
 
 /**
@@ -980,6 +981,8 @@ type WorkflowInput = {
   conversationState?: ConversationState;
   presentationMode?: PresentationMode;
   presentationInstructions?: string;
+  useCase?: UseCase; // Active use case for guiding agent behavior
+  useCaseInstructions?: string; // Use case-specific instructions
 };
 
 
@@ -991,16 +994,40 @@ export const runWorkflow = async (workflow: WorkflowInput) => {
     };
     const conversationHistory: AgentInputItem[] = [
       ...(workflow.conversationHistory || []),
-      {
-        role: "user",
+    ];
+
+    // Add use case instructions to conversation history if active use case exists
+    if (workflow.useCase && workflow.useCaseInstructions) {
+      const nextStep = workflow.useCase.steps.find(s => !s.completed);
+      conversationHistory.unshift({
+        role: 'system' as const,
         content: [
           {
-            type: "input_text",
-            text: workflow.input_as_text
-          }
-        ]
-      }
-    ];
+            type: 'input_text' as const,
+            text: `
+ACTIVE USE CASE: ${workflow.useCase.type}
+Status: ${workflow.useCase.status}
+Next Step: ${nextStep?.description || 'All steps complete'}
+
+${workflow.useCaseInstructions}
+
+IMPORTANT: Follow the use case workflow steps. When you complete a step, be explicit about what you accomplished.
+            `.trim(),
+          },
+        ],
+      });
+    }
+
+    // Add current user message
+    conversationHistory.push({
+      role: "user",
+      content: [
+        {
+          type: "input_text",
+          text: workflow.input_as_text
+        }
+      ]
+    });
     const runner = new Runner({
       traceMetadata: {
         __trace_source__: "agent-builder",

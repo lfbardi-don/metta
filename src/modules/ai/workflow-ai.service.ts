@@ -8,11 +8,19 @@ import {
   ConversationState,
   ProductMention,
 } from '../../common/interfaces';
+import {
+  UseCase,
+  UseCaseStatus,
+  UseCaseState,
+} from '../../common/interfaces/use-case.interface';
 import { GuardrailsService } from '../guardrails/guardrails.service';
 import { getGuardrailFallbackMessage } from '../guardrails/guardrail-messages.constant';
 import { PersistenceService } from '../persistence/persistence.service';
+import { PrismaService } from '../persistence/prisma.service';
 import { resolvePIIPlaceholders } from '../../common/helpers/resolve-pii.helper';
 import { ProductPresentationService } from './product-presentation.service';
+import { UseCaseDetectionService } from './services/use-case-detection.service';
+import { USE_CASE_WORKFLOWS } from './config/use-case-workflows.config';
 
 /**
  * Response from AI service with text and optional product images
@@ -47,6 +55,8 @@ export class WorkflowAIService {
     private readonly guardrailsService: GuardrailsService,
     private readonly persistenceService: PersistenceService,
     private readonly productPresentationService: ProductPresentationService,
+    private readonly useCaseDetectionService: UseCaseDetectionService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -140,15 +150,70 @@ export class WorkflowAIService {
       );
     }
 
-    // 4. Process with workflow (pass dbMessages and state to avoid re-fetching)
+    // 3.5. Get classifier intent first (need to detect use case)
+    const classifierIntent = await this.getClassifierIntent(
+      resolvedContent,
+      context,
+      dbMessages,
+    );
+
+    this.logger.log(`Classifier intent detected: ${classifierIntent}`);
+
+    // 3.6. Detect or continue use case
+    const useCase = this.useCaseDetectionService.detectUseCase(
+      message.content,
+      classifierIntent,
+      context.conversationHistory || [],
+      conversationState,
+    );
+
+    let useCaseInstructions: string | undefined;
+
+    if (useCase) {
+      this.logger.log(`Processing use case: ${useCase.type}`, {
+        useCaseId: useCase.useCaseId,
+        status: useCase.status,
+        nextStep: this.useCaseDetectionService.getNextStep(useCase)?.stepId,
+      });
+
+      // Update use case status to IN_PROGRESS
+      useCase.status = UseCaseStatus.IN_PROGRESS;
+
+      // Get workflow instructions for this use case
+      const workflow = USE_CASE_WORKFLOWS[useCase.type];
+      useCaseInstructions = workflow?.instructions || '';
+    }
+
+    // 4. Process with workflow (pass dbMessages, state, and use case context)
     const { response, products } = await this.runWorkflow(
       resolvedContent,
       context,
       dbMessages,
       conversationState,
+      useCase,
+      useCaseInstructions,
     );
 
-    // 4. Validate output with guardrails (context includes conversationHistory)
+    // 4.5. Update use case progress based on agent response
+    if (useCase) {
+      this.updateUseCaseProgress(useCase, response, context);
+
+      // Check if use case is completed
+      if (this.useCaseDetectionService.isUseCaseCompleted(useCase)) {
+        useCase.status = UseCaseStatus.COMPLETED;
+        useCase.completedAt = new Date();
+
+        this.logger.log(`Use case completed: ${useCase.type}`, {
+          useCaseId: useCase.useCaseId,
+          duration: useCase.completedAt.getTime() - useCase.startedAt.getTime(),
+        });
+      }
+
+      // Save use case state
+      await this.saveUseCaseState(context.conversationId, useCase, conversationState);
+    }
+
+    // 5. Validate output with guardrails (context includes conversationHistory)
     const outputValidation = await this.guardrailsService.validateOutput(
       response,
       context,
@@ -191,6 +256,8 @@ export class WorkflowAIService {
     context?: MessageContext,
     dbMessages?: any[],
     conversationState?: ConversationState | null,
+    useCase?: UseCase,
+    useCaseInstructions?: string,
   ): Promise<AIServiceResponse> {
     try {
       if (!context?.conversationId) {
@@ -260,13 +327,15 @@ export class WorkflowAIService {
         isFollowUp: queryContext.isFollowUp
       });
 
-      // Run workflow with history, state, and presentation instructions
+      // Run workflow with history, state, presentation instructions, and use case context
       const result = await runWorkflow({
         input_as_text: message,
         conversationHistory,
         conversationState: conversationState || undefined,
         presentationMode,
         presentationInstructions,
+        useCase,
+        useCaseInstructions,
       });
 
       this.logger.log('Workflow completed successfully');
@@ -573,5 +642,245 @@ export class WorkflowAIService {
       });
       return [];
     }
+  }
+
+  /**
+   * Get classifier intent by running just the classifier agent
+   * 
+   * This is called before the full workflow to detect the use case type.
+   * We run the classifier independently to get the intent without processing the full workflow.
+   */
+  private async getClassifierIntent(
+    message: string,
+    context: MessageContext,
+    dbMessages?: any[],
+  ): Promise<string> {
+    try {
+      // For simplicity, we'll extract the intent from a minimal workflow run
+      // In a more optimized implementation, we could run just the classifier agent
+      
+      // Load conversation history
+      const messages =
+        dbMessages ??
+        (await this.persistenceService.getMessagesByConversation(
+          context.conversationId,
+          { excludeLatest: 1 },
+        ));
+
+      const historyMessages =
+        dbMessages && dbMessages.length > 0
+          ? dbMessages.slice(0, -1)
+          : messages;
+
+      // Convert to AgentInputItem format
+      const conversationHistory: AgentInputItem[] = historyMessages.map((msg) => {
+        const role = msg.direction === 'incoming' ? ('user' as const) : ('assistant' as const);
+
+        return {
+          role,
+          content: role === 'user'
+            ? [{ type: 'input_text' as const, text: msg.content }]
+            : [{ type: 'output_text' as const, text: msg.content }],
+        } as AgentInputItem;
+      });
+
+      // Run workflow to get classifier result
+      // Note: This is not optimal as it runs the full workflow, but it's the simplest approach
+      // A better implementation would extract the classifier logic or run it separately
+      const result = await runWorkflow({
+        input_as_text: message,
+        conversationHistory,
+      });
+
+      // The workflow doesn't directly return classifier intent, so we'll infer from response
+      // For now, we'll use a simple heuristic based on keywords
+      // TODO: Refactor to expose classifier result from workflow
+      return this.inferIntentFromMessage(message);
+    } catch (error) {
+      this.logger.error('Failed to get classifier intent', error);
+      return 'OTHERS';
+    }
+  }
+
+  /**
+   * Infer intent from message using simple keyword matching
+   * 
+   * This is a fallback when we can't get the classifier result directly.
+   * TODO: Refactor workflow to expose classifier result
+   */
+  private inferIntentFromMessage(message: string): string {
+    const messageLower = message.toLowerCase();
+
+    // ORDER_STATUS keywords
+    if (
+      messageLower.includes('pedido') ||
+      messageLower.includes('order') ||
+      messageLower.includes('seguimiento') ||
+      messageLower.includes('tracking') ||
+      messageLower.includes('envio') ||
+      messageLower.includes('entrega') ||
+      messageLower.includes('pago') ||
+      messageLower.includes('payment') ||
+      messageLower.includes('devolucion') ||
+      messageLower.includes('return')
+    ) {
+      return 'ORDER_STATUS';
+    }
+
+    // PRODUCT_INFO keywords
+    if (
+      messageLower.includes('producto') ||
+      messageLower.includes('product') ||
+      messageLower.includes('jean') ||
+      messageLower.includes('remera') ||
+      messageLower.includes('talle') ||
+      messageLower.includes('size') ||
+      messageLower.includes('stock') ||
+      messageLower.includes('precio') ||
+      messageLower.includes('price') ||
+      messageLower.includes('color')
+    ) {
+      return 'PRODUCT_INFO';
+    }
+
+    // STORE_INFO keywords
+    if (
+      messageLower.includes('horario') ||
+      messageLower.includes('hours') ||
+      messageLower.includes('contacto') ||
+      messageLower.includes('contact') ||
+      messageLower.includes('politica') ||
+      messageLower.includes('policy') ||
+      messageLower.includes('cambio') ||
+      messageLower.includes('exchange')
+    ) {
+      return 'STORE_INFO';
+    }
+
+    // Default to OTHERS
+    return 'OTHERS';
+  }
+
+  /**
+   * Update use case progress based on agent response
+   * 
+   * This is a simplified implementation that marks steps as complete based on keywords.
+   * In a production system, the agents would explicitly signal step completion.
+   */
+  private updateUseCaseProgress(
+    useCase: UseCase,
+    response: string,
+    context: MessageContext,
+  ): void {
+    const responseLower = response.toLowerCase();
+
+    // Check for authentication completion
+    if (
+      !useCase.steps.find(s => s.stepId === 'authenticate')?.completed &&
+      (responseLower.includes('confirmé tu identidad') || 
+       responseLower.includes('confirmed') ||
+       responseLower.includes('verificado'))
+    ) {
+      this.useCaseDetectionService.markStepCompleted(useCase, 'authenticate');
+    }
+
+    // Check for product presentation
+    if (
+      !useCase.steps.find(s => s.stepId === 'present_products')?.completed &&
+      (responseLower.includes('![') || // Markdown image (product card)
+       responseLower.includes('precio:') ||
+       responseLower.includes('disponible'))
+    ) {
+      this.useCaseDetectionService.markStepCompleted(useCase, 'present_products');
+    }
+
+    // Check for order status presentation
+    if (
+      !useCase.steps.find(s => s.stepId === 'present_status')?.completed &&
+      (responseLower.includes('pedido') || 
+       responseLower.includes('estado') ||
+       responseLower.includes('en camino') ||
+       responseLower.includes('entregado'))
+    ) {
+      this.useCaseDetectionService.markStepCompleted(useCase, 'present_status');
+    }
+
+    // Mark generic steps as complete (understand_need, search_products, etc.)
+    // These are typically completed in a single turn
+    for (const step of useCase.steps) {
+      if (!step.completed && 
+          (step.stepId === 'understand_need' || 
+           step.stepId === 'search_products' ||
+           step.stepId === 'identify_product')) {
+        this.useCaseDetectionService.markStepCompleted(useCase, step.stepId);
+      }
+    }
+  }
+
+  /**
+   * Save use case state to database
+   * 
+   * Updates the conversation state with the current use case information.
+   */
+  private async saveUseCaseState(
+    conversationId: string,
+    useCase: UseCase,
+    currentState: ConversationState | null,
+  ): Promise<void> {
+    const useCases: UseCaseState = currentState?.state?.useCases || {
+      activeCases: [],
+      completedCases: [],
+    };
+
+    // Update or add use case
+    const existingIndex = useCases.activeCases.findIndex(
+      (uc) => uc.useCaseId === useCase.useCaseId,
+    );
+
+    if (useCase.status === UseCaseStatus.COMPLETED) {
+      // Move to completed
+      if (existingIndex >= 0) {
+        useCases.activeCases.splice(existingIndex, 1);
+      }
+      useCases.completedCases.push(useCase);
+
+      // Keep only last 5 completed cases
+      if (useCases.completedCases.length > 5) {
+        useCases.completedCases = useCases.completedCases.slice(-5);
+      }
+    } else {
+      // Update active
+      if (existingIndex >= 0) {
+        useCases.activeCases[existingIndex] = useCase;
+      } else {
+        useCases.activeCases.push(useCase);
+      }
+    }
+
+    // Save to database
+    await this.prisma.conversationState.upsert({
+      where: { conversationId },
+      update: {
+        state: {
+          products: currentState?.state?.products || [],
+          useCases,
+        } as any,
+      },
+      create: {
+        conversationId,
+        state: {
+          products: [],
+          useCases,
+        } as any,
+      },
+    });
+
+    this.logger.log('Use case state saved', {
+      conversationId,
+      useCaseId: useCase.useCaseId,
+      status: useCase.status,
+      activeCases: useCases.activeCases.length,
+      completedCases: useCases.completedCases.length,
+    });
   }
 }
