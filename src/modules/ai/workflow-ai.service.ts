@@ -151,7 +151,7 @@ export class WorkflowAIService {
     }
 
     // 3.5. Get classifier intent first (need to detect use case)
-    const classifierIntent = await this.getClassifierIntent(
+    const classifierIntent = this.getClassifierIntent(
       resolvedContent,
       context,
       dbMessages,
@@ -170,6 +170,20 @@ export class WorkflowAIService {
     let useCaseInstructions: string | undefined;
 
     if (useCase) {
+      // Normalize Date fields (they come as strings from JSON)
+      if (typeof useCase.startedAt === 'string') {
+        useCase.startedAt = new Date(useCase.startedAt);
+      }
+      if (useCase.completedAt && typeof useCase.completedAt === 'string') {
+        useCase.completedAt = new Date(useCase.completedAt);
+      }
+      // Normalize step dates
+      useCase.steps.forEach((step) => {
+        if (step.completedAt && typeof step.completedAt === 'string') {
+          step.completedAt = new Date(step.completedAt);
+        }
+      });
+
       this.logger.log(`Processing use case: ${useCase.type}`, {
         useCaseId: useCase.useCaseId,
         status: useCase.status,
@@ -209,8 +223,11 @@ export class WorkflowAIService {
         });
       }
 
-      // Save use case state
-      await this.saveUseCaseState(context.conversationId, useCase, conversationState);
+      // Save use case state (reload to get latest products added during workflow)
+      const latestState = await this.persistenceService.getConversationState(
+        context.conversationId,
+      );
+      await this.saveUseCaseState(context.conversationId, useCase, latestState);
     }
 
     // 5. Validate output with guardrails (context includes conversationHistory)
@@ -645,61 +662,21 @@ export class WorkflowAIService {
   }
 
   /**
-   * Get classifier intent by running just the classifier agent
+   * Get classifier intent using keyword matching
    * 
    * This is called before the full workflow to detect the use case type.
-   * We run the classifier independently to get the intent without processing the full workflow.
+   * Uses simple keyword heuristics to infer intent without running the workflow.
+   * 
+   * TODO: Refactor workflow to expose classifier result directly to avoid this heuristic.
    */
-  private async getClassifierIntent(
+  private getClassifierIntent(
     message: string,
     context: MessageContext,
     dbMessages?: any[],
-  ): Promise<string> {
-    try {
-      // For simplicity, we'll extract the intent from a minimal workflow run
-      // In a more optimized implementation, we could run just the classifier agent
-      
-      // Load conversation history
-      const messages =
-        dbMessages ??
-        (await this.persistenceService.getMessagesByConversation(
-          context.conversationId,
-          { excludeLatest: 1 },
-        ));
-
-      const historyMessages =
-        dbMessages && dbMessages.length > 0
-          ? dbMessages.slice(0, -1)
-          : messages;
-
-      // Convert to AgentInputItem format
-      const conversationHistory: AgentInputItem[] = historyMessages.map((msg) => {
-        const role = msg.direction === 'incoming' ? ('user' as const) : ('assistant' as const);
-
-        return {
-          role,
-          content: role === 'user'
-            ? [{ type: 'input_text' as const, text: msg.content }]
-            : [{ type: 'output_text' as const, text: msg.content }],
-        } as AgentInputItem;
-      });
-
-      // Run workflow to get classifier result
-      // Note: This is not optimal as it runs the full workflow, but it's the simplest approach
-      // A better implementation would extract the classifier logic or run it separately
-      const result = await runWorkflow({
-        input_as_text: message,
-        conversationHistory,
-      });
-
-      // The workflow doesn't directly return classifier intent, so we'll infer from response
-      // For now, we'll use a simple heuristic based on keywords
-      // TODO: Refactor to expose classifier result from workflow
-      return this.inferIntentFromMessage(message);
-    } catch (error) {
-      this.logger.error('Failed to get classifier intent', error);
-      return 'OTHERS';
-    }
+  ): string {
+    // Use keyword inference directly without running workflow
+    // This avoids duplicate workflow execution
+    return this.inferIntentFromMessage(message);
   }
 
   /**
