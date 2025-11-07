@@ -987,8 +987,8 @@ type WorkflowInput = {
   conversationState?: ConversationState;
   presentationMode?: PresentationMode;
   presentationInstructions?: string;
-  useCase?: UseCase | null; // Active use case for guiding agent behavior
-  useCaseInstructions?: string; // Use case-specific instructions
+  goal?: any | null; // Active customer goal (simplified from useCase)
+  // Removed: useCaseInstructions (agents decide behavior based on goal type)
 };
 
 // Main code entrypoint
@@ -1001,19 +1001,17 @@ export const runWorkflow = async (workflow: WorkflowInput) => {
       ...(workflow.conversationHistory || []),
     ];
 
-    // Add use case instructions to conversation history if active use case exists
-    if (workflow.useCase && workflow.useCaseInstructions) {
-      const nextStep = workflow.useCase.steps.find((s) => !s.completed);
+    // Add goal context to conversation history if active goal exists (SIMPLIFIED)
+    if (workflow.goal) {
+      const goal = workflow.goal;
       conversationHistory.unshift({
         role: 'system' as const,
         content: `
-ACTIVE USE CASE: ${workflow.useCase.type}
-Status: ${workflow.useCase.status}
-Next Step: ${nextStep?.description || 'All steps complete'}
+ACTIVE GOAL: ${goal.type}
+Topic: ${goal.context?.topic || 'general'}
+Context: ${goal.context?.orderId ? `Order #${goal.context.orderId}` : 'No specific context'}
 
-${workflow.useCaseInstructions}
-
-IMPORTANT: Follow the use case workflow steps. When you complete a step, be explicit about what you accomplished.
+Continue helping the customer achieve their goal naturally.
         `.trim(),
       });
     }

@@ -4,6 +4,7 @@ import {
   OutgoingMessage,
   ConversationState,
   ProductMention,
+  CustomerGoal,
 } from '../../common/interfaces';
 import { PrismaService } from './prisma.service';
 
@@ -308,6 +309,299 @@ export class PersistenceService {
         newProductsCount: newProducts.length,
       });
       // Don't throw - state update failure shouldn't block message processing
+    }
+  }
+
+  /**
+   * Update full conversation state (NEW - supports goals, products, summary)
+   * More flexible than updateConversationState - allows updating any state field
+   *
+   * @param conversationId - The conversation ID
+   * @param stateUpdate - Partial state update (any fields to update)
+   */
+  async updateFullConversationState(
+    conversationId: string,
+    stateUpdate: Partial<ConversationState['state']>,
+  ): Promise<void> {
+    try {
+      // Get existing state
+      const existingState = await this.prisma.conversationState.findUnique({
+        where: { conversationId },
+      });
+
+      // Merge with existing state
+      const currentState = existingState?.state
+        ? (existingState.state as any)
+        : { products: [] };
+
+      const newState = {
+        ...currentState,
+        ...stateUpdate,
+        // Merge products if provided
+        products: stateUpdate.products || currentState.products || [],
+      };
+
+      // Upsert state
+      await this.prisma.conversationState.upsert({
+        where: { conversationId },
+        update: {
+          state: newState as any,
+        },
+        create: {
+          conversationId,
+          state: newState as any,
+        },
+      });
+
+      this.logger.log('Updated full conversation state', {
+        conversationId,
+        updatedFields: Object.keys(stateUpdate),
+      });
+    } catch (error) {
+      this.logger.error('Failed to update full conversation state', {
+        error: error.message,
+        conversationId,
+      });
+    }
+  }
+
+  /**
+   * Set active goal for conversation
+   *
+   * @param conversationId - The conversation ID
+   * @param goal - The new active goal (null to clear)
+   */
+  async setActiveGoal(
+    conversationId: string,
+    goal: CustomerGoal | null,
+  ): Promise<void> {
+    try {
+      const existingState = await this.getConversationState(conversationId);
+      const currentState = existingState?.state || { products: [] };
+
+      // If setting a new goal and there's an active one, move it to recent
+      let recentGoals = currentState.recentGoals || [];
+      if (goal && currentState.activeGoal) {
+        const completedGoal = {
+          ...currentState.activeGoal,
+          status: 'completed' as const,
+          completedAt: new Date(),
+        };
+        recentGoals = [completedGoal, ...recentGoals].slice(0, 3); // Keep last 3
+      }
+
+      await this.updateFullConversationState(conversationId, {
+        activeGoal: goal,
+        recentGoals,
+        lastTopic: goal?.context?.topic,
+      });
+
+      this.logger.log('Set active goal', {
+        conversationId,
+        goalType: goal?.type,
+        goalId: goal?.goalId,
+      });
+    } catch (error) {
+      this.logger.error('Failed to set active goal', {
+        error: error.message,
+        conversationId,
+      });
+    }
+  }
+
+  /**
+   * Update active goal's progress
+   *
+   * @param conversationId - The conversation ID
+   * @param updates - Fields to update on the active goal
+   */
+  async updateActiveGoal(
+    conversationId: string,
+    updates: Partial<CustomerGoal>,
+  ): Promise<void> {
+    try {
+      const existingState = await this.getConversationState(conversationId);
+      if (!existingState?.state?.activeGoal) {
+        this.logger.warn('No active goal to update', { conversationId });
+        return;
+      }
+
+      const updatedGoal = {
+        ...existingState.state.activeGoal,
+        ...updates,
+        lastActivityAt: new Date(),
+      };
+
+      await this.updateFullConversationState(conversationId, {
+        activeGoal: updatedGoal as CustomerGoal,
+      });
+
+      this.logger.log('Updated active goal', {
+        conversationId,
+        goalId: updatedGoal.goalId,
+        updatedFields: Object.keys(updates),
+      });
+    } catch (error) {
+      this.logger.error('Failed to update active goal', {
+        error: error.message,
+        conversationId,
+      });
+    }
+  }
+
+  /**
+   * Add progress marker to active goal
+   *
+   * @param conversationId - The conversation ID
+   * @param marker - Progress marker to add (e.g., "authenticated", "order_fetched")
+   */
+  async addGoalProgressMarker(
+    conversationId: string,
+    marker: string,
+  ): Promise<void> {
+    try {
+      const existingState = await this.getConversationState(conversationId);
+      if (!existingState?.state?.activeGoal) {
+        return;
+      }
+
+      const currentMarkers =
+        existingState.state.activeGoal.progressMarkers || [];
+      if (currentMarkers.includes(marker)) {
+        return; // Already exists
+      }
+
+      await this.updateActiveGoal(conversationId, {
+        progressMarkers: [...currentMarkers, marker],
+      });
+
+      this.logger.log('Added goal progress marker', {
+        conversationId,
+        marker,
+      });
+    } catch (error) {
+      this.logger.error('Failed to add goal progress marker', {
+        error: error.message,
+        conversationId,
+        marker,
+      });
+    }
+  }
+
+  /**
+   * Complete active goal and move to recent goals
+   *
+   * @param conversationId - The conversation ID
+   */
+  async completeActiveGoal(conversationId: string): Promise<void> {
+    try {
+      const existingState = await this.getConversationState(conversationId);
+      if (!existingState?.state?.activeGoal) {
+        return;
+      }
+
+      const completedGoal: CustomerGoal = {
+        ...existingState.state.activeGoal,
+        status: 'completed',
+        completedAt: new Date(),
+      };
+
+      const recentGoals = [
+        completedGoal,
+        ...(existingState.state.recentGoals || []),
+      ].slice(0, 3);
+
+      await this.updateFullConversationState(conversationId, {
+        activeGoal: null,
+        recentGoals,
+      });
+
+      this.logger.log('Completed active goal', {
+        conversationId,
+        goalId: completedGoal.goalId,
+        goalType: completedGoal.type,
+      });
+    } catch (error) {
+      this.logger.error('Failed to complete active goal', {
+        error: error.message,
+        conversationId,
+      });
+    }
+  }
+
+  /**
+   * Update conversation summary
+   *
+   * @param conversationId - The conversation ID
+   * @param summary - Human-readable summary (max 200 chars recommended)
+   */
+  async updateSummary(
+    conversationId: string,
+    summary: string,
+  ): Promise<void> {
+    try {
+      await this.updateFullConversationState(conversationId, {
+        summary: summary.substring(0, 200), // Enforce max length
+      });
+
+      this.logger.log('Updated conversation summary', {
+        conversationId,
+        summaryLength: summary.length,
+      });
+    } catch (error) {
+      this.logger.error('Failed to update summary', {
+        error: error.message,
+        conversationId,
+      });
+    }
+  }
+
+  /**
+   * Set escalation flag
+   *
+   * @param conversationId - The conversation ID
+   * @param reason - Reason for escalation
+   */
+  async setEscalation(
+    conversationId: string,
+    reason: string,
+  ): Promise<void> {
+    try {
+      await this.updateFullConversationState(conversationId, {
+        needsHumanHelp: true,
+        escalationReason: reason,
+      });
+
+      this.logger.warn('Conversation escalated', {
+        conversationId,
+        reason,
+      });
+    } catch (error) {
+      this.logger.error('Failed to set escalation', {
+        error: error.message,
+        conversationId,
+      });
+    }
+  }
+
+  /**
+   * Clear escalation flag
+   *
+   * @param conversationId - The conversation ID
+   */
+  async clearEscalation(conversationId: string): Promise<void> {
+    try {
+      await this.updateFullConversationState(conversationId, {
+        needsHumanHelp: false,
+        escalationReason: undefined,
+      });
+
+      this.logger.log('Cleared escalation', { conversationId });
+    } catch (error) {
+      this.logger.error('Failed to clear escalation', {
+        error: error.message,
+        conversationId,
+      });
     }
   }
 }

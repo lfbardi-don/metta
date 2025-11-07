@@ -7,6 +7,8 @@ import {
   MessageContext,
   ConversationState,
   ProductMention,
+  CustomerGoal,
+  GoalType,
 } from '../../common/interfaces';
 import {
   UseCase,
@@ -30,7 +32,7 @@ export interface AIServiceResponse {
   response: string;
   products: Array<any>;
   metadata?: Record<string, any>;
-  initialState?: any; // State before processing (for incoming message audit trail)
+  initialState?: ConversationState['state'] | null; // State before processing (for incoming message audit trail)
 }
 
 /**
@@ -152,7 +154,7 @@ export class WorkflowAIService {
       );
     }
 
-    // 3.5. Get classifier intent first (need to detect use case)
+    // 3.5. Get classifier intent first (need to detect goal)
     const classifierIntent = this.getClassifierIntent(
       resolvedContent,
       context,
@@ -161,107 +163,85 @@ export class WorkflowAIService {
 
     this.logger.log(`Classifier intent detected: ${classifierIntent}`);
 
-    // 3.6. Detect or continue use case
-    const useCase = this.useCaseDetectionService.detectUseCase(
+    // 3.6. Detect or continue customer goal (SIMPLIFIED from use case)
+    const goal = this.useCaseDetectionService.detectGoal(
       message.content,
       classifierIntent,
       context.conversationHistory || [],
       conversationState,
     );
 
-    let useCaseInstructions: string | undefined;
-    let initialState: any = null; // State before processing (for incoming message)
+    let initialState: ConversationState['state'] | null = null; // State before processing (for incoming message)
 
-    if (useCase) {
+    if (goal) {
       // Normalize Date fields (they come as strings from JSON)
-      if (typeof useCase.startedAt === 'string') {
-        useCase.startedAt = new Date(useCase.startedAt);
+      if (typeof goal.startedAt === 'string') {
+        goal.startedAt = new Date(goal.startedAt);
       }
-      if (useCase.completedAt && typeof useCase.completedAt === 'string') {
-        useCase.completedAt = new Date(useCase.completedAt);
+      if (goal.completedAt && typeof goal.completedAt === 'string') {
+        goal.completedAt = new Date(goal.completedAt);
       }
-      // Normalize step dates
-      useCase.steps.forEach((step) => {
-        if (step.completedAt && typeof step.completedAt === 'string') {
-          step.completedAt = new Date(step.completedAt);
-        }
+      if (typeof goal.lastActivityAt === 'string') {
+        goal.lastActivityAt = new Date(goal.lastActivityAt);
+      }
+
+      this.logger.log(`Processing goal: ${goal.type}`, {
+        goalId: goal.goalId,
+        status: goal.status,
+        topic: goal.context?.topic,
       });
-
-      this.logger.log(`Processing use case: ${useCase.type}`, {
-        useCaseId: useCase.useCaseId,
-        status: useCase.status,
-        nextStep: this.useCaseDetectionService.getNextStep(useCase)?.stepId,
-      });
-
-      // Update use case status to IN_PROGRESS
-      useCase.status = UseCaseStatus.IN_PROGRESS;
-
-      // Get workflow instructions for this use case
-      const workflow = USE_CASE_WORKFLOWS[useCase.type];
-      useCaseInstructions = workflow?.instructions || '';
 
       // Capture initial state (BEFORE processing) for incoming message
       // This creates a snapshot of the state when the user sent their message
-      const tempUseCases: UseCaseState = conversationState?.state?.useCases || {
-        activeCases: [],
-        completedCases: [],
-      };
-
-      // Check if this use case already exists in active cases
-      const existingIndex = tempUseCases.activeCases.findIndex(
-        (uc) => uc.useCaseId === useCase.useCaseId,
-      );
-
-      if (existingIndex >= 0) {
-        // Update existing use case
-        tempUseCases.activeCases[existingIndex] = useCase;
-      } else {
-        // Add new use case to active cases
-        tempUseCases.activeCases.push(useCase);
-      }
-
-      // Construct initial state for incoming message
       initialState = {
         products: conversationState?.state?.products || [],
-        useCases: tempUseCases,
+        activeGoal: goal,
+        recentGoals: conversationState?.state?.recentGoals || [],
+        lastTopic: conversationState?.state?.lastTopic,
+        summary: conversationState?.state?.summary,
+        // Keep legacy useCases for backward compatibility during migration
+        useCases: conversationState?.state?.useCases || {
+          activeCases: [],
+          completedCases: [],
+        },
       };
 
       this.logger.log('Initial state captured for incoming message', {
-        activeCases: tempUseCases.activeCases.length,
-        completedCases: tempUseCases.completedCases.length,
+        goalType: goal.type,
+        hasRecentGoals: (conversationState?.state?.recentGoals?.length || 0) > 0,
       });
     }
 
-    // 4. Process with workflow (pass dbMessages, state, and use case context)
+    // 4. Process with workflow (pass dbMessages, state, and goal context)
     const { response, products, metadata: workflowMetadata } = await this.runWorkflow(
       resolvedContent,
       context,
       dbMessages,
       conversationState,
-      useCase,
-      useCaseInstructions,
+      goal,
     );
 
-    // 4.5. Update use case progress based on agent response
-    if (useCase) {
-      this.updateUseCaseProgress(useCase, response, context);
+    // 4.5. Update goal state after processing (SIMPLIFIED - no complex step tracking)
+    if (goal) {
+      // Add simple progress marker based on response
+      await this.addSimpleProgressMarkers(goal, response, products);
 
-      // Check if use case is completed
-      if (this.useCaseDetectionService.isUseCaseCompleted(useCase)) {
-        useCase.status = UseCaseStatus.COMPLETED;
-        useCase.completedAt = new Date();
+      // Save goal state to database
+      await this.persistenceService.setActiveGoal(context.conversationId, goal);
 
-        this.logger.log(`Use case completed: ${useCase.type}`, {
-          useCaseId: useCase.useCaseId,
-          duration: useCase.completedAt.getTime() - useCase.startedAt.getTime(),
-        });
+      // Update conversation summary if this was a significant interaction
+      if (this.isSignificantInteraction(goal, response)) {
+        const summary = this.generateSimpleSummary(goal, response);
+        await this.persistenceService.updateSummary(
+          context.conversationId,
+          summary,
+        );
       }
 
-      // Save use case state (reload to get latest products added during workflow)
-      const latestState = await this.persistenceService.getConversationState(
-        context.conversationId,
-      );
-      await this.saveUseCaseState(context.conversationId, useCase, latestState);
+      this.logger.log(`Goal state updated: ${goal.type}`, {
+        goalId: goal.goalId,
+        progressMarkers: goal.progressMarkers?.length || 0,
+      });
     }
 
     // 5. Validate output with guardrails (context includes conversationHistory)
@@ -322,8 +302,7 @@ export class WorkflowAIService {
     context?: MessageContext,
     dbMessages?: any[],
     conversationState?: ConversationState | null,
-    useCase?: UseCase | null,
-    useCaseInstructions?: string,
+    goal?: CustomerGoal | null,
   ): Promise<AIServiceResponse> {
     try {
       if (!context?.conversationId) {
@@ -401,15 +380,15 @@ export class WorkflowAIService {
         isFollowUp: queryContext.isFollowUp,
       });
 
-      // Run workflow with history, state, presentation instructions, and use case context
+      // Run workflow with history, state, presentation instructions, and goal context
       const result = await runWorkflow({
         input_as_text: message,
         conversationHistory,
         conversationState: conversationState || undefined,
         presentationMode,
         presentationInstructions,
-        useCase,
-        useCaseInstructions,
+        goal, // SIMPLIFIED: Pass goal instead of useCase
+        // Note: No useCaseInstructions - agent decides behavior based on goal type
       });
 
       this.logger.log('Workflow completed successfully');
@@ -735,300 +714,122 @@ export class WorkflowAIService {
    * This implementation marks steps as complete based on keywords and context.
    * It covers all step types defined in use case workflows.
    */
+  /**
+   * Add simple progress markers to goal (SIMPLIFIED - no brittle keyword matching)
+   * Just tracks major milestones based on goal type and presence of products
+   */
+  private async addSimpleProgressMarkers(
+    goal: CustomerGoal,
+    response: string,
+    products: any[],
+  ): Promise<void> {
+    if (!goal.progressMarkers) {
+      goal.progressMarkers = [];
+    }
+
+    const responseLower = response.toLowerCase();
+
+    // Add markers based on goal type and response content
+    switch (goal.type) {
+      case GoalType.ORDER_INQUIRY:
+        if (
+          !goal.progressMarkers.includes('order_info_provided') &&
+          (responseLower.includes('pedido') || responseLower.includes('orden'))
+        ) {
+          goal.progressMarkers.push('order_info_provided');
+        }
+        break;
+
+      case GoalType.PRODUCT_SEARCH:
+      case GoalType.PRODUCT_QUESTION:
+        if (
+          !goal.progressMarkers.includes('products_shown') &&
+          products.length > 0
+        ) {
+          goal.progressMarkers.push('products_shown');
+        }
+        break;
+
+      case GoalType.STORE_INFO:
+        if (!goal.progressMarkers.includes('info_provided')) {
+          goal.progressMarkers.push('info_provided');
+        }
+        break;
+
+      case GoalType.GREETING:
+        if (!goal.progressMarkers.includes('greeted')) {
+          goal.progressMarkers.push('greeted');
+        }
+        break;
+    }
+
+    // Update lastActivityAt
+    goal.lastActivityAt = new Date();
+  }
+
+  /**
+   * Determine if this interaction is significant enough to update summary
+   */
+  private isSignificantInteraction(
+    goal: CustomerGoal,
+    response: string,
+  ): boolean {
+    // Update summary for order inquiries and product searches
+    return (
+      goal.type === GoalType.ORDER_INQUIRY ||
+      goal.type === GoalType.PRODUCT_SEARCH ||
+      goal.type === GoalType.PRODUCT_QUESTION
+    );
+  }
+
+  /**
+   * Generate a simple, human-readable summary
+   */
+  private generateSimpleSummary(
+    goal: CustomerGoal,
+    response: string,
+  ): string {
+    const summaries: Record<GoalType, string> = {
+      [GoalType.ORDER_INQUIRY]: `Customer inquiring about order ${goal.context?.orderId || 'details'}`,
+      [GoalType.PRODUCT_SEARCH]: `Customer searching for products: ${goal.context?.topic || 'general'}`,
+      [GoalType.PRODUCT_QUESTION]: `Customer asking about product details`,
+      [GoalType.STORE_INFO]: `Customer asking about store ${goal.context?.topic || 'information'}`,
+      [GoalType.GREETING]: `Casual conversation`,
+      [GoalType.OTHER]: `General inquiry`,
+    };
+
+    return summaries[goal.type] || 'Customer interaction';
+  }
+
+  /**
+   * DEPRECATED: Old use case progress tracking (kept for backward compatibility)
+   * Use addSimpleProgressMarkers() instead
+   */
   private updateUseCaseProgress(
     useCase: UseCase,
     response: string,
     context: MessageContext,
   ): void {
-    const responseLower = response.toLowerCase();
-
-    // 1. Authentication steps
-    if (
-      !useCase.steps.find((s) => s.stepId === 'authenticate')?.completed &&
-      (responseLower.includes('confirmé tu identidad') ||
-        responseLower.includes('confirmed') ||
-        responseLower.includes('verificado'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'authenticate');
-    }
-
-    // 2. Order identification (implicit when orderId is in context)
-    if (
-      !useCase.steps.find((s) => s.stepId === 'identify_order')?.completed &&
-      useCase.context?.orderId
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'identify_order');
-    }
-
-    // 3. Product presentation
-    if (
-      !useCase.steps.find((s) => s.stepId === 'present_products')?.completed &&
-      (responseLower.includes('![') || // Markdown image (product card)
-        responseLower.includes('precio:') ||
-        responseLower.includes('disponible') ||
-        responseLower.includes('stock') ||
-        responseLower.includes('talle'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(
-        useCase,
-        'present_products',
-      );
-    }
-
-    // 4. Order status presentation
-    if (
-      !useCase.steps.find((s) => s.stepId === 'present_status')?.completed &&
-      (responseLower.includes('pedido') ||
-        responseLower.includes('orden') ||
-        responseLower.includes('estado') ||
-        responseLower.includes('en camino') ||
-        responseLower.includes('entregado') ||
-        responseLower.includes('preparando'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'present_status');
-    }
-
-    // 5. Fetch steps (detect when data is present in response)
-    if (
-      !useCase.steps.find((s) => s.stepId === 'fetch_status')?.completed &&
-      (responseLower.includes('pedido') || responseLower.includes('orden'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'fetch_status');
-    }
-
-    if (
-      !useCase.steps.find((s) => s.stepId === 'fetch_tracking')?.completed &&
-      (responseLower.includes('tracking') ||
-        responseLower.includes('seguimiento') ||
-        responseLower.includes('oca') ||
-        responseLower.includes('andreani') ||
-        responseLower.includes('correo'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'fetch_tracking');
-    }
-
-    if (
-      !useCase.steps.find((s) => s.stepId === 'fetch_payment')?.completed &&
-      (responseLower.includes('pago') ||
-        responseLower.includes('payment') ||
-        responseLower.includes('pagado') ||
-        responseLower.includes('procesado'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'fetch_payment');
-    }
-
-    if (
-      !useCase.steps.find((s) => s.stepId === 'fetch_details')?.completed &&
-      (responseLower.includes('detalle') ||
-        responseLower.includes('descripción') ||
-        responseLower.includes('características'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'fetch_details');
-    }
-
-    // 6. Present steps
-    if (
-      !useCase.steps.find((s) => s.stepId === 'present_tracking')?.completed &&
-      (responseLower.includes('tracking') ||
-        responseLower.includes('llegará') ||
-        responseLower.includes('envío'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'present_tracking');
-    }
-
-    if (
-      !useCase.steps.find((s) => s.stepId === 'present_payment')?.completed &&
-      responseLower.includes('pago')
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'present_payment');
-    }
-
-    if (
-      !useCase.steps.find((s) => s.stepId === 'present_details')?.completed &&
-      responseLower.includes('producto')
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'present_details');
-    }
-
-    if (
-      !useCase.steps.find((s) => s.stepId === 'present_availability')?.completed &&
-      (responseLower.includes('disponible') ||
-        responseLower.includes('stock') ||
-        responseLower.includes('talle'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'present_availability');
-    }
-
-    if (
-      !useCase.steps.find((s) => s.stepId === 'present_policy')?.completed &&
-      (responseLower.includes('política') ||
-        responseLower.includes('devolución') ||
-        responseLower.includes('días'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'present_policy');
-    }
-
-    if (
-      !useCase.steps.find((s) => s.stepId === 'present_hours')?.completed &&
-      (responseLower.includes('horario') ||
-        responseLower.includes('lunes') ||
-        responseLower.includes('abierto'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'present_hours');
-    }
-
-    if (
-      !useCase.steps.find((s) => s.stepId === 'present_contact')?.completed &&
-      (responseLower.includes('contacto') ||
-        responseLower.includes('teléfono') ||
-        responseLower.includes('email') ||
-        responseLower.includes('whatsapp'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'present_contact');
-    }
-
-    // 7. Satisfaction/confirmation steps (detect positive responses)
-    if (
-      !useCase.steps.find((s) => s.stepId === 'check_satisfaction')?.completed &&
-      (responseLower.includes('gracias') ||
-        responseLower.includes('perfecto') ||
-        responseLower.includes('genial') ||
-        responseLower.includes('excelente') ||
-        responseLower.includes('buenísimo') ||
-        responseLower.includes('ok') ||
-        responseLower.includes('dale') ||
-        responseLower.includes('sí') ||
-        responseLower.includes('si,') ||
-        responseLower.includes('claro') ||
-        responseLower.includes('listo'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'check_satisfaction');
-    }
-
-    if (
-      !useCase.steps.find((s) => s.stepId === 'confirm_understanding')?.completed &&
-      (responseLower.includes('entendido') ||
-        responseLower.includes('claro') ||
-        responseLower.includes('gracias') ||
-        responseLower.includes('ok'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'confirm_understanding');
-    }
-
-    // 8. Provide instructions step (for returns, etc.)
-    if (
-      !useCase.steps.find((s) => s.stepId === 'provide_instructions')?.completed &&
-      (responseLower.includes('devolución') ||
-        responseLower.includes('cambio') ||
-        responseLower.includes('pasos'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'provide_instructions');
-    }
-
-    // 9. Verify eligibility step
-    if (
-      !useCase.steps.find((s) => s.stepId === 'verify_eligibility')?.completed &&
-      (responseLower.includes('elegible') ||
-        responseLower.includes('puede') ||
-        responseLower.includes('día'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'verify_eligibility');
-    }
-
-    // 10. Check variants step
-    if (
-      !useCase.steps.find((s) => s.stepId === 'check_variants')?.completed &&
-      (responseLower.includes('talle') ||
-        responseLower.includes('color') ||
-        responseLower.includes('variante'))
-    ) {
-      this.useCaseDetectionService.markStepCompleted(useCase, 'check_variants');
-    }
-
-    // 11. Auto-complete simple/generic steps (always complete in single turn)
-    for (const step of useCase.steps) {
-      if (
-        !step.completed &&
-        (step.stepId === 'understand_need' ||
-          step.stepId === 'search_products' ||
-          step.stepId === 'identify_product' ||
-          step.stepId === 'understand_query' ||
-          step.stepId === 'provide_response' ||
-          step.stepId === 'respond_greeting' ||
-          step.stepId === 'offer_help' ||
-          step.stepId === 'search_policy' ||
-          step.stepId === 'search_hours' ||
-          step.stepId === 'search_contact')
-      ) {
-        this.useCaseDetectionService.markStepCompleted(useCase, step.stepId);
-      }
-    }
+    // DEPRECATED - Simplified goal system doesn't use step tracking
+    this.logger.warn(
+      'updateUseCaseProgress called but deprecated - use goal system instead',
+    );
   }
 
   /**
-   * Save use case state to database
-   *
-   * Updates the conversation state with the current use case information.
+   * DEPRECATED: Old use case state saving (kept for backward compatibility)
+   * Use persistenceService.setActiveGoal() instead
    */
   private async saveUseCaseState(
     conversationId: string,
     useCase: UseCase,
     currentState: ConversationState | null,
   ): Promise<void> {
-    const useCases: UseCaseState = currentState?.state?.useCases || {
-      activeCases: [],
-      completedCases: [],
-    };
-
-    // Update or add use case
-    const existingIndex = useCases.activeCases.findIndex(
-      (uc) => uc.useCaseId === useCase.useCaseId,
+    // DEPRECATED - Simplified goal system uses different persistence
+    this.logger.warn(
+      'saveUseCaseState called but deprecated - use goal system instead',
     );
-
-    if (useCase.status === UseCaseStatus.COMPLETED) {
-      // Move to completed
-      if (existingIndex >= 0) {
-        useCases.activeCases.splice(existingIndex, 1);
-      }
-      useCases.completedCases.push(useCase);
-
-      // Keep only last 5 completed cases
-      if (useCases.completedCases.length > 5) {
-        useCases.completedCases = useCases.completedCases.slice(-5);
-      }
-    } else {
-      // Update active
-      if (existingIndex >= 0) {
-        useCases.activeCases[existingIndex] = useCase;
-      } else {
-        useCases.activeCases.push(useCase);
-      }
-    }
-
-    // Save to database
-    await this.prisma.conversationState.upsert({
-      where: { conversationId },
-      update: {
-        state: {
-          products: currentState?.state?.products || [],
-          useCases,
-        } as any,
-      },
-      create: {
-        conversationId,
-        state: {
-          products: [],
-          useCases,
-        } as any,
-      },
-    });
-
-    this.logger.log('Use case state saved', {
-      conversationId,
-      useCaseId: useCase.useCaseId,
-      status: useCase.status,
-      activeCases: useCases.activeCases.length,
-      completedCases: useCases.completedCases.length,
-    });
+    // Method kept as stub for backward compatibility
+    // New code should use: persistenceService.setActiveGoal()
   }
 }
