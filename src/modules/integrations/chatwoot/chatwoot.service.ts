@@ -159,9 +159,12 @@ export class ChatwootService {
 
       return response.data;
     } catch (error) {
-      this.logger.error(`Failed to download attachment from ${attachment.url}`, {
-        error: error.message,
-      });
+      this.logger.error(
+        `Failed to download attachment from ${attachment.url}`,
+        {
+          error: error.message,
+        },
+      );
       throw new Error(`Failed to download attachment: ${error.message}`);
     }
   }
@@ -214,7 +217,9 @@ export class ChatwootService {
         response: error.response?.data,
         status: error.response?.status,
       });
-      throw new Error(`Failed to send card message to Chatwoot: ${error.message}`);
+      throw new Error(
+        `Failed to send card message to Chatwoot: ${error.message}`,
+      );
     }
   }
 

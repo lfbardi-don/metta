@@ -23,7 +23,7 @@ export class QueueProcessor implements OnModuleInit {
     private readonly chatwootService: ChatwootService,
     private readonly persistenceService: PersistenceService,
     private readonly messageBatcher: MessageBatcherService,
-  ) { }
+  ) {}
 
   async onModuleInit() {
     this.logger.log('Queue processor initialized');
@@ -82,7 +82,8 @@ export class QueueProcessor implements OnModuleInit {
         }
 
         // Group messages by conversationId for intelligent batching
-        const messagesByConversation = this.groupMessagesByConversation(messages);
+        const messagesByConversation =
+          this.groupMessagesByConversation(messages);
 
         // Process each conversation's messages
         for (const [
@@ -216,9 +217,9 @@ export class QueueProcessor implements OnModuleInit {
         stack: error.stack,
         payload: payload
           ? {
-            messageId: payload.messageId,
-            conversationId: payload.conversationId,
-          }
+              messageId: payload.messageId,
+              conversationId: payload.conversationId,
+            }
           : 'unknown',
       });
 
@@ -287,14 +288,31 @@ export class QueueProcessor implements OnModuleInit {
 
       // 3. Process with Workflow AI
       this.logger.log('Processing batch with Workflow AI service');
-      const { response, products, metadata } = await this.workflowAIService.processMessage(
-        incomingMessages[incomingMessages.length - 1]
-      );
+      const { response, products, metadata, initialState } =
+        await this.workflowAIService.processMessage(
+          incomingMessages[incomingMessages.length - 1],
+        );
 
       // Log product count for debugging
       if (products.length > 0) {
         this.logger.log(
           `AI returned ${products.length} product(s) - formatted inline with images`,
+        );
+      }
+
+      // 3.5. Update incoming message with INITIAL state (before processing)
+      // This captures the state at the moment the user sent their message
+      const latestIncomingMessage = incomingMessages[incomingMessages.length - 1];
+      if (latestIncomingMessage.messageId && initialState) {
+        const updatedMetadata = {
+          ...latestIncomingMessage.metadata, // Keep source, accountId, etc.
+          state: initialState,                // Initial state (use case just detected)
+        };
+
+        await this.persistenceService.updateIncomingMessageMetadata(
+          conversationId,
+          latestIncomingMessage.messageId,
+          updatedMetadata,
         );
       }
 

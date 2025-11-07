@@ -29,7 +29,7 @@ export class OdooService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OdooService.name);
   private client: OdooClient;
 
-  constructor(private readonly configService: ConfigService) { }
+  constructor(private readonly configService: ConfigService) {}
 
   /**
    * Initialize Odoo client on module startup
@@ -133,29 +133,26 @@ export class OdooService implements OnModuleInit, OnModuleDestroy {
     try {
       // Helper function to perform the actual search
       const performSearch = async (searchTerm: string) => {
-        return await this.client.searchRead<OdooProduct>(
-          'product.product',
-          {
-            domain: [
-              '|',
-              '|',
-              ['name', 'ilike', searchTerm],
-              ['default_code', 'ilike', searchTerm],
-              ['barcode', 'ilike', searchTerm],
-            ],
-            fields: [
-              'name',
-              'list_price',
-              'qty_available',
-              'default_code',
-              'description_sale',
-              'categ_id',
-              'barcode',
-              'image_1920', // High-resolution product image
-            ],
-            limit,
-          },
-        );
+        return await this.client.searchRead<OdooProduct>('product.product', {
+          domain: [
+            '|',
+            '|',
+            ['name', 'ilike', searchTerm],
+            ['default_code', 'ilike', searchTerm],
+            ['barcode', 'ilike', searchTerm],
+          ],
+          fields: [
+            'name',
+            'list_price',
+            'qty_available',
+            'default_code',
+            'description_sale',
+            'categ_id',
+            'barcode',
+            'image_1920', // High-resolution product image
+          ],
+          limit,
+        });
       };
 
       // First attempt: search with original query
@@ -179,7 +176,9 @@ export class OdooService implements OnModuleInit, OnModuleDestroy {
         products = await performSearch(singularQuery);
       }
 
-      this.logger.log(`Found ${products.length} product(s) matching "${query}"`);
+      this.logger.log(
+        `Found ${products.length} product(s) matching "${query}"`,
+      );
 
       return products.map((product) => this.mapProductToSimplified(product));
     } catch (error) {
@@ -197,9 +196,7 @@ export class OdooService implements OnModuleInit, OnModuleDestroy {
    * @param identifier - Order ID (number like 123 or "123") or reference (string like "SO001")
    * @returns Simplified order information with items and customer
    */
-  async getOrderByIdentifier(
-    identifier: string | number,
-  ): Promise<OdooOrder> {
+  async getOrderByIdentifier(identifier: string | number): Promise<OdooOrder> {
     this.logger.log(`Getting order by identifier: ${identifier}`);
 
     try {
@@ -210,7 +207,10 @@ export class OdooService implements OnModuleInit, OnModuleDestroy {
       if (typeof identifier === 'string') {
         // Check if string is purely numeric (e.g., "123")
         const numericValue = Number(identifier);
-        if (!isNaN(numericValue) && identifier.trim() === numericValue.toString()) {
+        if (
+          !isNaN(numericValue) &&
+          identifier.trim() === numericValue.toString()
+        ) {
           searchValue = numericValue;
           searchById = true;
         }

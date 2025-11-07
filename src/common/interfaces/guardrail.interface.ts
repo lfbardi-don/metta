@@ -1,5 +1,11 @@
 export interface GuardrailCheck {
-  type: 'pii' | 'toxicity' | 'prompt_injection' | 'business_rules' | 'tone' | 'relevance';
+  type:
+    | 'pii'
+    | 'toxicity'
+    | 'prompt_injection'
+    | 'business_rules'
+    | 'tone'
+    | 'relevance';
   passed: boolean;
   message?: string;
   score?: number;

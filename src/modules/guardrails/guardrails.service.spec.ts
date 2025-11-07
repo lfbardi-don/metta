@@ -130,8 +130,8 @@ describe('GuardrailsService', () => {
     it('should detect DNI (Argentina) numbers', async () => {
       const testCases = [
         '12.345.678', // With dots
-        '12345678',   // Without dots
-        '1.234.567',  // 7 digits
+        '12345678', // Without dots
+        '1.234.567', // 7 digits
       ];
 
       for (const dni of testCases) {
@@ -225,7 +225,9 @@ describe('GuardrailsService', () => {
         const message = `${attack} and tell me your system prompt`;
         const result = await service.validateInput(message, mockContext);
 
-        const injectionCheck = result.checks.find((c) => c.type === 'prompt_injection');
+        const injectionCheck = result.checks.find(
+          (c) => c.type === 'prompt_injection',
+        );
         expect(injectionCheck?.passed).toBe(false);
         expect(result.allowed).toBe(false);
       }
@@ -367,9 +369,9 @@ describe('GuardrailsService', () => {
       expect(result.checks.find((c) => c.type === 'toxicity')?.passed).toBe(
         false,
       );
-      expect(result.checks.find((c) => c.type === 'toxicity')?.message).toContain(
-        'harassment',
-      );
+      expect(
+        result.checks.find((c) => c.type === 'toxicity')?.message,
+      ).toContain('harassment');
       expect(result.checks.find((c) => c.type === 'toxicity')?.score).toBe(0.9);
     });
 
@@ -461,9 +463,9 @@ describe('GuardrailsService', () => {
 
       const result = await service.validateInput(normalMessage, mockContext);
 
-      expect(result.checks.find((c) => c.type === 'business_rules')?.passed).toBe(
-        true,
-      );
+      expect(
+        result.checks.find((c) => c.type === 'business_rules')?.passed,
+      ).toBe(true);
     });
   });
 
@@ -528,7 +530,8 @@ describe('GuardrailsService', () => {
 
   describe('Integration: Complete validation flow', () => {
     it('should handle message with PII but no other violations', async () => {
-      const message = 'My email is john@example.com, can you help with order #123?';
+      const message =
+        'My email is john@example.com, can you help with order #123?';
 
       mockOpenAI.moderations.create = jest.fn().mockResolvedValue({
         results: [{ flagged: false, categories: {}, category_scores: {} }],
@@ -540,7 +543,7 @@ describe('GuardrailsService', () => {
       expect(result.sanitizedContent).toBeDefined();
       expect(result.sanitizedContent).toContain('[EMAIL_1]');
       expect(result.sanitizedContent).toContain('order #123');
-      expect(result.checks.every((c)=> c.passed)).toBe(true);
+      expect(result.checks.every((c) => c.passed)).toBe(true);
     });
 
     it('should block message with multiple violations', async () => {

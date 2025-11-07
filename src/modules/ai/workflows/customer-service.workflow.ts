@@ -1,8 +1,15 @@
-import { hostedMcpTool, fileSearchTool, Agent, AgentInputItem, Runner, withTrace } from "@openai/agents";
-import { z } from "zod";
-import { ConversationState } from "../../../common/interfaces";
-import { UseCase } from "../../../common/interfaces/use-case.interface";
-import { PresentationMode } from "../templates/product-presentation.templates";
+import {
+  hostedMcpTool,
+  fileSearchTool,
+  Agent,
+  AgentInputItem,
+  Runner,
+  withTrace,
+} from '@openai/agents';
+import { z } from 'zod';
+import { ConversationState } from '../../../common/interfaces';
+import { UseCase } from '../../../common/interfaces/use-case.interface';
+import { PresentationMode } from '../templates/product-presentation.templates';
 
 /**
  * Metta Customer Service Workflow
@@ -33,34 +40,36 @@ import { PresentationMode } from "../templates/product-presentation.templates";
 
 // Tool definitions
 const mcp = hostedMcpTool({
-  serverLabel: "NuvemShop_Orders",
-  serverUrl: "https://nuvemshop-orders.luisfbardi.workers.dev/sse",
+  serverLabel: 'NuvemShop_Orders',
+  serverUrl: 'https://nuvemshop-orders.luisfbardi.workers.dev/sse',
   allowedTools: [
-    "get_nuvemshop_order",
-    "get_nuvemshop_customer_orders",
-    "get_nuvemshop_customer",
-    "get_nuvemshop_order_tracking",
-    "get_nuvemshop_payment_history"
+    'get_nuvemshop_order',
+    'get_nuvemshop_customer_orders',
+    'get_nuvemshop_customer',
+    'get_nuvemshop_order_tracking',
+    'get_nuvemshop_payment_history',
   ],
-  requireApproval: "never"
-})
+  requireApproval: 'never',
+});
 const mcp1 = hostedMcpTool({
-  serverLabel: "NuvemShop_Products",
+  serverLabel: 'NuvemShop_Products',
   allowedTools: [
-    "search_nuvemshop_products",
-    "get_nuvemshop_product",
-    "get_nuvemshop_product_by_sku",
-    "get_nuvemshop_categories"
+    'search_nuvemshop_products',
+    'get_nuvemshop_product',
+    'get_nuvemshop_product_by_sku',
+    'get_nuvemshop_categories',
   ],
-  requireApproval: "never",
-  serverUrl: "https://nuvemshop-products.luisfbardi.workers.dev/sse"
-})
-const fileSearch = fileSearchTool([
-  "vs_6908fd1143388191af50558c88311abf"
-])
-const MettaClassifierSchema = z.object({ intent: z.enum(["ORDER_STATUS", "PRODUCT_INFO", "STORE_INFO", "OTHERS"]), confidence: z.number(), explanation: z.string() });
+  requireApproval: 'never',
+  serverUrl: 'https://nuvemshop-products.luisfbardi.workers.dev/sse',
+});
+const fileSearch = fileSearchTool(['vs_6908fd1143388191af50558c88311abf']);
+const MettaClassifierSchema = z.object({
+  intent: z.enum(['ORDER_STATUS', 'PRODUCT_INFO', 'STORE_INFO', 'OTHERS']),
+  confidence: z.number(),
+  explanation: z.string(),
+});
 const mettaClassifier = new Agent({
-  name: "Metta Classifier",
+  name: 'Metta Classifier',
   instructions: `You are MettaClassifier
 
 A classification system for the e-commerce store metta.com.ar. Your sole task is to analyze user messages and categorize them into one of a small number of predefined INTENTS. You never chat or answer the customer — you only output structured classification data.
@@ -102,18 +111,18 @@ Keep the confidence realistic:
 Clear question → 0.9–1.0
 Somewhat ambiguous → 0.6–0.8
 Totally unclear → <0.5`,
-  model: "gpt-4.1",
+  model: 'gpt-4.1',
   outputType: MettaClassifierSchema,
   modelSettings: {
     temperature: 0,
     topP: 1,
     maxTokens: 300,
-    store: true
-  }
+    store: true,
+  },
 });
 
 const ordersAgent = new Agent({
-  name: "Orders Agent",
+  name: 'Orders Agent',
   instructions: `# Luna – Orders Agent
 
 ## Role & Purpose
@@ -398,16 +407,14 @@ Before ending conversation:
 - \"Gracias por tu paciencia y por elegirnos.\"
 - \"Cualquier cosa, escribime tranqui.\"
 `,
-  model: "gpt-4.1",
-  tools: [
-    mcp
-  ],
+  model: 'gpt-4.1',
+  tools: [mcp],
   modelSettings: {
     temperature: 0.7,
     topP: 1,
     maxTokens: 2048,
-    store: true
-  }
+    store: true,
+  },
 });
 
 /**
@@ -421,14 +428,17 @@ Before ending conversation:
 const createProductsAgent = (
   conversationState: ConversationState | null,
   presentationMode?: PresentationMode,
-  presentationInstructions?: string
+  presentationInstructions?: string,
 ) => {
   // Generate state context string if products exist in state
   let stateContext = '';
 
   if (conversationState && conversationState.state.products.length > 0) {
     const productsList = conversationState.state.products
-      .map(p => `- **${p.productName}** (ID: ${p.productId}) - mentioned ${new Date(p.mentionedAt).toLocaleTimeString()}`)
+      .map(
+        (p) =>
+          `- **${p.productName}** (ID: ${p.productId}) - mentioned ${new Date(p.mentionedAt).toLocaleTimeString()}`,
+      )
       .join('\n');
 
     stateContext = `
@@ -465,7 +475,7 @@ ${presentationInstructions}
   }
 
   return new Agent({
-    name: "Products Agent",
+    name: 'Products Agent',
     instructions: `# Luna – Products Agent
 ${stateContext}${presentationContext}
 ## Role & Purpose
@@ -803,21 +813,19 @@ Always finish upbeat and encouraging:
 - \"Espero que encuentres tu jean perfecto. Si querés te ayudo a elegir más opciones.\"
 - \"¿Hay algo más que quieras ver?\"
 `,
-    model: "gpt-4.1",
-    tools: [
-      mcp1
-    ],
+    model: 'gpt-4.1',
+    tools: [mcp1],
     modelSettings: {
       temperature: 0.7,
       topP: 1,
       maxTokens: 2048,
-      store: true
-    }
+      store: true,
+    },
   });
 };
 
 const faqAgent = new Agent({
-  name: "FAQ Agent",
+  name: 'FAQ Agent',
   instructions: `# Metta FAQ Agent – Production Prompt
 
 ## Overview
@@ -914,20 +922,18 @@ Write as if chatting naturally with the customer.
 Act as the **human voice** of Metta's customer support.
 Keep it polite, brief, brand-consistent, and **invisible about internal systems**.
 `,
-  model: "gpt-4.1",
-  tools: [
-    fileSearch
-  ],
+  model: 'gpt-4.1',
+  tools: [fileSearch],
   modelSettings: {
     temperature: 0.4,
     topP: 1,
     maxTokens: 2048,
-    store: true
-  }
+    store: true,
+  },
 });
 
 const greetingsAgent = new Agent({
-  name: "Greetings Agent",
+  name: 'Greetings Agent',
   instructions: `You are Metta Greetings Assistant, the warm and friendly voice of metta.com.ar. Your job is to handle all messages that are not directly related to orders, products, or store FAQs.
 
 You represent Metta's tone: kind, supportive, and human — never robotic or overly formal.
@@ -966,13 +972,13 @@ Never mention internal tools or agents (just say "I can connect you").
 Don't give information about orders, products, or store policies.
 Don't repeat the same greeting more than twice in a row.
 If user repeats "hello" multiple times, respond once and then ask how you can help.`,
-  model: "gpt-4.1-mini",
+  model: 'gpt-4.1-mini',
   modelSettings: {
     temperature: 0.6,
     topP: 1,
     maxTokens: 2048,
-    store: true
-  }
+    store: true,
+  },
 });
 
 type WorkflowInput = {
@@ -981,14 +987,13 @@ type WorkflowInput = {
   conversationState?: ConversationState;
   presentationMode?: PresentationMode;
   presentationInstructions?: string;
-  useCase?: UseCase; // Active use case for guiding agent behavior
+  useCase?: UseCase | null; // Active use case for guiding agent behavior
   useCaseInstructions?: string; // Use case-specific instructions
 };
 
-
 // Main code entrypoint
 export const runWorkflow = async (workflow: WorkflowInput) => {
-  return await withTrace("Metta - Customer Service", async () => {
+  return await withTrace('Metta - Customer Service', async () => {
     const state = {
       conversationState: workflow.conversationState || null,
     };
@@ -998,13 +1003,10 @@ export const runWorkflow = async (workflow: WorkflowInput) => {
 
     // Add use case instructions to conversation history if active use case exists
     if (workflow.useCase && workflow.useCaseInstructions) {
-      const nextStep = workflow.useCase.steps.find(s => !s.completed);
+      const nextStep = workflow.useCase.steps.find((s) => !s.completed);
       conversationHistory.unshift({
         role: 'system' as const,
-        content: [
-          {
-            type: 'input_text' as const,
-            text: `
+        content: `
 ACTIVE USE CASE: ${workflow.useCase.type}
 Status: ${workflow.useCase.status}
 Next Step: ${nextStep?.description || 'All steps complete'}
@@ -1012,123 +1014,116 @@ Next Step: ${nextStep?.description || 'All steps complete'}
 ${workflow.useCaseInstructions}
 
 IMPORTANT: Follow the use case workflow steps. When you complete a step, be explicit about what you accomplished.
-            `.trim(),
-          },
-        ],
+        `.trim(),
       });
     }
 
     // Add current user message
     conversationHistory.push({
-      role: "user",
+      role: 'user',
       content: [
         {
-          type: "input_text",
-          text: workflow.input_as_text
-        }
-      ]
+          type: 'input_text',
+          text: workflow.input_as_text,
+        },
+      ],
     });
     const runner = new Runner({
       traceMetadata: {
-        __trace_source__: "agent-builder",
-        workflow_id: "wf_6908c91cd5ac8190baa31b1799154da102aeda53012b0c18"
-      }
+        __trace_source__: 'agent-builder',
+        workflow_id: 'wf_6908c91cd5ac8190baa31b1799154da102aeda53012b0c18',
+      },
     });
-    const mettaClassifierResultTemp = await runner.run(
-      mettaClassifier,
-      [
-        ...conversationHistory
-      ]
+    const mettaClassifierResultTemp = await runner.run(mettaClassifier, [
+      ...conversationHistory,
+    ]);
+    conversationHistory.push(
+      ...mettaClassifierResultTemp.newItems.map((item) => item.rawItem),
     );
-    conversationHistory.push(...mettaClassifierResultTemp.newItems.map((item) => item.rawItem));
 
     if (!mettaClassifierResultTemp.finalOutput) {
-        throw new Error("Agent result is undefined");
+      throw new Error('Agent result is undefined');
     }
 
     const mettaClassifierResult = {
       output_text: JSON.stringify(mettaClassifierResultTemp.finalOutput),
-      output_parsed: mettaClassifierResultTemp.finalOutput
+      output_parsed: mettaClassifierResultTemp.finalOutput,
     };
-    if (mettaClassifierResult.output_parsed.intent == "ORDER_STATUS") {
-      const ordersAgentResultTemp = await runner.run(
-        ordersAgent,
-        [
-          ...conversationHistory
-        ]
+    if (mettaClassifierResult.output_parsed.intent == 'ORDER_STATUS') {
+      const ordersAgentResultTemp = await runner.run(ordersAgent, [
+        ...conversationHistory,
+      ]);
+      conversationHistory.push(
+        ...ordersAgentResultTemp.newItems.map((item) => item.rawItem),
       );
-      conversationHistory.push(...ordersAgentResultTemp.newItems.map((item) => item.rawItem));
 
       if (!ordersAgentResultTemp.finalOutput) {
-          throw new Error("Agent result is undefined");
+        throw new Error('Agent result is undefined');
       }
 
       const ordersAgentResult = {
-        output_text: ordersAgentResultTemp.finalOutput ?? "",
-        newItems: ordersAgentResultTemp.newItems
+        output_text: ordersAgentResultTemp.finalOutput ?? '',
+        newItems: ordersAgentResultTemp.newItems,
       };
       return ordersAgentResult;
-    } else if (mettaClassifierResult.output_parsed.intent == "PRODUCT_INFO") {
+    } else if (mettaClassifierResult.output_parsed.intent == 'PRODUCT_INFO') {
       // Create Products Agent with current conversation state and presentation mode
       const productsAgent = createProductsAgent(
         state.conversationState,
         workflow.presentationMode,
-        workflow.presentationInstructions
+        workflow.presentationInstructions,
       );
 
-      const productsAgentResultTemp = await runner.run(
-        productsAgent,
-        [
-          ...conversationHistory
-        ]
+      const productsAgentResultTemp = await runner.run(productsAgent, [
+        ...conversationHistory,
+      ]);
+      conversationHistory.push(
+        ...productsAgentResultTemp.newItems.map((item) => item.rawItem),
       );
-      conversationHistory.push(...productsAgentResultTemp.newItems.map((item) => item.rawItem));
 
       if (!productsAgentResultTemp.finalOutput) {
-          throw new Error("Agent result is undefined");
+        throw new Error('Agent result is undefined');
       }
 
       const productsAgentResult = {
-        output_text: productsAgentResultTemp.finalOutput ?? "",
-        newItems: productsAgentResultTemp.newItems
+        output_text: productsAgentResultTemp.finalOutput ?? '',
+        newItems: productsAgentResultTemp.newItems,
       };
       return productsAgentResult;
-    } else if (mettaClassifierResult.output_parsed.intent == "STORE_INFO") {
-      const faqAgentResultTemp = await runner.run(
-        faqAgent,
-        [
-          ...conversationHistory
-        ]
+    } else if (mettaClassifierResult.output_parsed.intent == 'STORE_INFO') {
+      const faqAgentResultTemp = await runner.run(faqAgent, [
+        ...conversationHistory,
+      ]);
+      conversationHistory.push(
+        ...faqAgentResultTemp.newItems.map((item) => item.rawItem),
       );
-      conversationHistory.push(...faqAgentResultTemp.newItems.map((item) => item.rawItem));
 
       if (!faqAgentResultTemp.finalOutput) {
-          throw new Error("Agent result is undefined");
+        throw new Error('Agent result is undefined');
       }
 
       const faqAgentResult = {
-        output_text: faqAgentResultTemp.finalOutput ?? "",
-        newItems: faqAgentResultTemp.newItems
+        output_text: faqAgentResultTemp.finalOutput ?? '',
+        newItems: faqAgentResultTemp.newItems,
       };
       return faqAgentResult;
     } else {
-      const greetingsAgentResultTemp = await runner.run(
-        greetingsAgent,
-        [
-          ...conversationHistory
-        ]
+      const greetingsAgentResultTemp = await runner.run(greetingsAgent, [
+        ...conversationHistory,
+      ]);
+      conversationHistory.push(
+        ...greetingsAgentResultTemp.newItems.map((item) => item.rawItem),
       );
-      conversationHistory.push(...greetingsAgentResultTemp.newItems.map((item) => item.rawItem));
 
       if (!greetingsAgentResultTemp.finalOutput) {
-          throw new Error("Agent result is undefined");
+        throw new Error('Agent result is undefined');
       }
 
       const greetingsAgentResult = {
-        output_text: greetingsAgentResultTemp.finalOutput ?? "",
-        newItems: greetingsAgentResultTemp.newItems
+        output_text: greetingsAgentResultTemp.finalOutput ?? '',
+        newItems: greetingsAgentResultTemp.newItems,
       };
       return greetingsAgentResult;
     }
   });
-}
+};

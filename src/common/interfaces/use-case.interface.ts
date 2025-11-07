@@ -1,6 +1,6 @@
 /**
  * Use Case Types - Customer Journey Goals
- * 
+ *
  * Represents different types of customer goals that can be tracked
  * throughout a conversation.
  */
@@ -28,7 +28,7 @@ export enum UseCaseType {
 
 /**
  * Use Case Status
- * 
+ *
  * Tracks the current state of a use case in its lifecycle.
  */
 export enum UseCaseStatus {
@@ -41,7 +41,7 @@ export enum UseCaseStatus {
 
 /**
  * Use Case Step
- * 
+ *
  * Represents a single step in a use case workflow.
  */
 export interface UseCaseStep {
@@ -54,7 +54,7 @@ export interface UseCaseStep {
 
 /**
  * Use Case
- * 
+ *
  * Represents a complete customer journey goal with its steps and context.
  */
 export interface UseCase {
@@ -76,11 +76,10 @@ export interface UseCase {
 
 /**
  * Use Case State
- * 
+ *
  * Contains all active and recently completed use cases for a conversation.
  */
 export interface UseCaseState {
   activeCases: UseCase[]; // Currently active use cases
   completedCases: UseCase[]; // Recently completed (for reference)
 }
-

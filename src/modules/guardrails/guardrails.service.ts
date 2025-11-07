@@ -43,12 +43,10 @@ export class GuardrailsService {
   // PII Detection Patterns
   private readonly piiPatterns = {
     // Email pattern (RFC 5322 simplified)
-    email:
-      /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
+    email: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
 
     // Phone patterns (US and international) - requires separators or parentheses to avoid matching card numbers
-    phone:
-      /(?:\+?\d{1,3}[-.\s])?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b/g,
+    phone: /(?:\+?\d{1,3}[-.\s])?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b/g,
 
     // Credit card patterns (Visa, MC, Amex, Discover)
     creditCard:
@@ -95,7 +93,9 @@ export class GuardrailsService {
     // Initialize OpenAI client
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     if (!apiKey) {
-      this.logger.warn('OPENAI_API_KEY not found - moderation checks will fail');
+      this.logger.warn(
+        'OPENAI_API_KEY not found - moderation checks will fail',
+      );
     }
     this.openai = new OpenAI({ apiKey });
 
@@ -127,7 +127,9 @@ export class GuardrailsService {
 
     this.logger.log('Guardrails service initialized with configuration:');
     this.logger.log(`  PII Check: ${this.piiCheckEnabled}`);
-    this.logger.log(`  Toxicity Check (input only): ${this.toxicityCheckEnabled}`);
+    this.logger.log(
+      `  Toxicity Check (input only): ${this.toxicityCheckEnabled}`,
+    );
     this.logger.log(`  Injection Check: ${this.injectionCheckEnabled}`);
     this.logger.log(`  Business Rules: ${this.businessRulesEnabled}`);
   }
@@ -144,8 +146,8 @@ export class GuardrailsService {
       matches.push({
         type: 'email',
         value: match[0],
-        start: match.index!,
-        end: match.index! + match[0].length,
+        start: match.index,
+        end: match.index + match[0].length,
       });
     }
 
@@ -155,8 +157,8 @@ export class GuardrailsService {
       matches.push({
         type: 'phone',
         value: match[0],
-        start: match.index!,
-        end: match.index! + match[0].length,
+        start: match.index,
+        end: match.index + match[0].length,
       });
     }
 
@@ -169,8 +171,8 @@ export class GuardrailsService {
         matches.push({
           type: 'credit_card',
           value: match[0],
-          start: match.index!,
-          end: match.index! + match[0].length,
+          start: match.index,
+          end: match.index + match[0].length,
         });
       }
     }
@@ -181,8 +183,8 @@ export class GuardrailsService {
       matches.push({
         type: 'ssn',
         value: match[0],
-        start: match.index!,
-        end: match.index! + match[0].length,
+        start: match.index,
+        end: match.index + match[0].length,
       });
     }
 
@@ -192,8 +194,8 @@ export class GuardrailsService {
       matches.push({
         type: 'dni',
         value: match[0],
-        start: match.index!,
-        end: match.index! + match[0].length,
+        start: match.index,
+        end: match.index + match[0].length,
       });
     }
 
@@ -261,7 +263,9 @@ export class GuardrailsService {
 
       // Replace in text
       sanitized =
-        sanitized.slice(0, match.start) + placeholder + sanitized.slice(match.end);
+        sanitized.slice(0, match.start) +
+        placeholder +
+        sanitized.slice(match.end);
     }
 
     return { sanitized, metadata };
@@ -280,10 +284,7 @@ export class GuardrailsService {
    * Get indexed placeholder for PII type
    * Example: email → [EMAIL_1], [EMAIL_2], etc.
    */
-  private getIndexedPlaceholder(
-    type: PIIMatch['type'],
-    index: number,
-  ): string {
+  private getIndexedPlaceholder(type: PIIMatch['type'], index: number): string {
     const prefixes = {
       email: 'EMAIL',
       phone: 'PHONE',
@@ -482,7 +483,8 @@ export class GuardrailsService {
     return {
       allowed,
       checks,
-      sanitizedContent: sanitizedContent !== message ? sanitizedContent : undefined,
+      sanitizedContent:
+        sanitizedContent !== message ? sanitizedContent : undefined,
       piiMetadata,
     };
   }
@@ -505,12 +507,16 @@ export class GuardrailsService {
       if (sanitized.includes(realValue)) {
         sanitized = sanitized.split(realValue).join(placeholder);
         leaksDetected++;
-        this.logger.warn(`PII leak detected in output: ${placeholder} value found`);
+        this.logger.warn(
+          `PII leak detected in output: ${placeholder} value found`,
+        );
       }
     }
 
     if (leaksDetected > 0) {
-      this.logger.warn(`Total PII leaks detected and re-sanitized: ${leaksDetected}`);
+      this.logger.warn(
+        `Total PII leaks detected and re-sanitized: ${leaksDetected}`,
+      );
     }
 
     return sanitized;
@@ -533,7 +539,10 @@ export class GuardrailsService {
 
     // 0. Check for PII leakage from metadata (if any PII was extracted from input)
     if (context.piiMetadata) {
-      const leakCheckResult = this.checkPIILeakage(response, context.piiMetadata);
+      const leakCheckResult = this.checkPIILeakage(
+        response,
+        context.piiMetadata,
+      );
       if (leakCheckResult !== response) {
         sanitizedContent = leakCheckResult;
         this.logger.warn('PII leakage detected and sanitized in output');
@@ -591,7 +600,8 @@ export class GuardrailsService {
     return {
       allowed,
       checks,
-      sanitizedContent: sanitizedContent !== response ? sanitizedContent : undefined,
+      sanitizedContent:
+        sanitizedContent !== response ? sanitizedContent : undefined,
     };
   }
 

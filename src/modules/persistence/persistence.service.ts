@@ -99,6 +99,40 @@ export class PersistenceService {
   }
 
   /**
+   * Update an incoming message's metadata with conversation state
+   * Called after AI processing to add state to the incoming message
+   */
+  async updateIncomingMessageMetadata(
+    conversationId: string,
+    messageId: string,
+    metadata: any,
+  ): Promise<void> {
+    try {
+      await this.prisma.message.updateMany({
+        where: {
+          conversationId,
+          messageId,
+          direction: 'incoming',
+        },
+        data: {
+          metadata,
+        },
+      });
+
+      this.logger.log('Updated incoming message metadata', {
+        messageId,
+        conversationId,
+      });
+    } catch (error) {
+      this.logger.error('Failed to update incoming message metadata', {
+        error: error.message,
+        messageId,
+      });
+      // Don't throw - metadata update failure shouldn't block processing
+    }
+  }
+
+  /**
    * Save conversation metadata
    */
   async saveConversationMetadata(
@@ -184,7 +218,9 @@ export class PersistenceService {
       if (!state) return null;
 
       // Prisma automatically deserializes JSON - just need type assertion
-      const stateData = (state.state || { products: [] }) as unknown as { products: ProductMention[] };
+      const stateData = (state.state || { products: [] }) as unknown as {
+        products: ProductMention[];
+      };
 
       this.logger.log('Retrieved conversation state', {
         conversationId,
@@ -229,7 +265,9 @@ export class PersistenceService {
 
       if (existingState?.state) {
         // Prisma automatically deserializes JSON - just need type assertion
-        const stateData = existingState.state as unknown as { products: ProductMention[] };
+        const stateData = existingState.state as unknown as {
+          products: ProductMention[];
+        };
         const existingProducts = stateData.products || [];
         const existingIds = new Set(existingProducts.map((p) => p.productId));
 
@@ -261,7 +299,7 @@ export class PersistenceService {
         conversationId,
         newProductsCount: newProducts.length,
         totalProductsCount: mergedProducts.length,
-        newProductIds: newProducts.map(p => p.productId),
+        newProductIds: newProducts.map((p) => p.productId),
       });
     } catch (error) {
       this.logger.error('Failed to update conversation state', {

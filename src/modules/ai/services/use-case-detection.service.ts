@@ -7,11 +7,14 @@ import {
   UseCaseStep,
 } from '../../../common/interfaces/use-case.interface';
 import { ConversationState } from '../../../common/interfaces/conversation-state.interface';
-import { USE_CASE_WORKFLOWS, STEP_DESCRIPTIONS } from '../config/use-case-workflows.config';
+import {
+  USE_CASE_WORKFLOWS,
+  STEP_DESCRIPTIONS,
+} from '../config/use-case-workflows.config';
 
 /**
  * Use Case Detection Service
- * 
+ *
  * Detects and manages use cases (customer journey goals) throughout conversations.
  * This service:
  * - Detects use case type from message and classifier intent
@@ -26,7 +29,7 @@ export class UseCaseDetectionService {
 
   /**
    * Detect use case from message and classifier intent
-   * 
+   *
    * @param message - User message
    * @param classifierIntent - Intent from Metta Classifier
    * @param conversationHistory - Recent messages
@@ -46,7 +49,8 @@ export class UseCaseDetectionService {
 
     // Check if this use case is already active
     const existingCase = currentState?.state?.useCases?.activeCases?.find(
-      (uc) => uc.type === useCaseType && uc.status === UseCaseStatus.IN_PROGRESS,
+      (uc) =>
+        uc.type === useCaseType && uc.status === UseCaseStatus.IN_PROGRESS,
     );
 
     if (existingCase) {
@@ -86,13 +90,20 @@ export class UseCaseDetectionService {
 
     // ORDER_STATUS intent
     if (classifierIntent === 'ORDER_STATUS') {
-      if (messageLower.includes('seguimiento') || messageLower.includes('tracking')) {
+      if (
+        messageLower.includes('seguimiento') ||
+        messageLower.includes('tracking')
+      ) {
         return UseCaseType.TRACK_SHIPMENT;
       }
       if (messageLower.includes('pago') || messageLower.includes('payment')) {
         return UseCaseType.VERIFY_PAYMENT;
       }
-      if (messageLower.includes('devolucion') || messageLower.includes('return') || messageLower.includes('devolver')) {
+      if (
+        messageLower.includes('devolucion') ||
+        messageLower.includes('return') ||
+        messageLower.includes('devolver')
+      ) {
         return UseCaseType.REQUEST_RETURN;
       }
       return UseCaseType.CHECK_ORDER_STATUS;
@@ -100,7 +111,11 @@ export class UseCaseDetectionService {
 
     // PRODUCT_INFO intent
     if (classifierIntent === 'PRODUCT_INFO') {
-      if (messageLower.includes('talle') || messageLower.includes('size') || messageLower.includes('medida')) {
+      if (
+        messageLower.includes('talle') ||
+        messageLower.includes('size') ||
+        messageLower.includes('medida')
+      ) {
         return UseCaseType.CHECK_SIZE_AVAILABILITY;
       }
       if (messageLower.match(/\d+/)) {
@@ -112,13 +127,25 @@ export class UseCaseDetectionService {
 
     // STORE_INFO intent
     if (classifierIntent === 'STORE_INFO') {
-      if (messageLower.includes('horario') || messageLower.includes('hours') || messageLower.includes('abierto')) {
+      if (
+        messageLower.includes('horario') ||
+        messageLower.includes('hours') ||
+        messageLower.includes('abierto')
+      ) {
         return UseCaseType.GET_STORE_HOURS;
       }
-      if (messageLower.includes('devolucion') || messageLower.includes('cambio') || messageLower.includes('politica')) {
+      if (
+        messageLower.includes('devolucion') ||
+        messageLower.includes('cambio') ||
+        messageLower.includes('politica')
+      ) {
         return UseCaseType.LEARN_RETURN_POLICY;
       }
-      if (messageLower.includes('contacto') || messageLower.includes('telefono') || messageLower.includes('email')) {
+      if (
+        messageLower.includes('contacto') ||
+        messageLower.includes('telefono') ||
+        messageLower.includes('email')
+      ) {
         return UseCaseType.CONTACT_SUPPORT;
       }
       return UseCaseType.CONTACT_SUPPORT;
@@ -149,12 +176,21 @@ export class UseCaseDetectionService {
   /**
    * Extract context from message
    */
-  private extractContext(message: string, useCaseType: UseCaseType): Record<string, any> {
+  private extractContext(
+    message: string,
+    useCaseType: UseCaseType,
+  ): Record<string, any> {
     const context: Record<string, any> = {};
 
     // Extract order number (e.g., "#1234", "1234", "SO1234")
     const orderMatch = message.match(/#?(\d+)/);
-    if (orderMatch && (useCaseType.includes('order') || useCaseType.includes('track') || useCaseType.includes('return') || useCaseType.includes('payment'))) {
+    if (
+      orderMatch &&
+      (useCaseType.includes('order') ||
+        useCaseType.includes('track') ||
+        useCaseType.includes('return') ||
+        useCaseType.includes('payment'))
+    ) {
       context.orderId = orderMatch[1];
     }
 
@@ -180,7 +216,11 @@ export class UseCaseDetectionService {
   /**
    * Mark a step as completed
    */
-  markStepCompleted(useCase: UseCase, stepId: string, data?: Record<string, any>): void {
+  markStepCompleted(
+    useCase: UseCase,
+    stepId: string,
+    data?: Record<string, any>,
+  ): void {
     const step = useCase.steps.find((s) => s.stepId === stepId);
     if (step) {
       step.completed = true;
@@ -188,7 +228,9 @@ export class UseCaseDetectionService {
       if (data) {
         step.data = data;
       }
-      this.logger.debug(`Step completed: ${stepId} for use case ${useCase.type}`);
+      this.logger.debug(
+        `Step completed: ${stepId} for use case ${useCase.type}`,
+      );
     }
   }
 
@@ -211,14 +253,22 @@ export class UseCaseDetectionService {
    */
   getCompletionPrompt(useCaseType: UseCaseType): string {
     const prompts: Record<UseCaseType, string> = {
-      [UseCaseType.CHECK_ORDER_STATUS]: '¿Hay algo más que pueda hacer por vos con este pedido?',
-      [UseCaseType.TRACK_SHIPMENT]: '¿Necesitás ayuda con algo más sobre este envío?',
-      [UseCaseType.REQUEST_RETURN]: '¿Necesitás ayuda con algo más sobre la devolución?',
-      [UseCaseType.VERIFY_PAYMENT]: '¿Hay algo más que pueda ayudarte con el pago?',
-      [UseCaseType.FIND_PRODUCT]: '¿Querés que te muestre más opciones o te ayudo con algo más?',
-      [UseCaseType.CHECK_SIZE_AVAILABILITY]: '¿Querés que te ayude con algo más sobre este producto?',
-      [UseCaseType.GET_PRODUCT_DETAILS]: '¿Necesitás saber algo más sobre este producto?',
-      [UseCaseType.LEARN_RETURN_POLICY]: '¿Te quedó clara la política de devoluciones?',
+      [UseCaseType.CHECK_ORDER_STATUS]:
+        '¿Hay algo más que pueda hacer por vos con este pedido?',
+      [UseCaseType.TRACK_SHIPMENT]:
+        '¿Necesitás ayuda con algo más sobre este envío?',
+      [UseCaseType.REQUEST_RETURN]:
+        '¿Necesitás ayuda con algo más sobre la devolución?',
+      [UseCaseType.VERIFY_PAYMENT]:
+        '¿Hay algo más que pueda ayudarte con el pago?',
+      [UseCaseType.FIND_PRODUCT]:
+        '¿Querés que te muestre más opciones o te ayudo con algo más?',
+      [UseCaseType.CHECK_SIZE_AVAILABILITY]:
+        '¿Querés que te ayude con algo más sobre este producto?',
+      [UseCaseType.GET_PRODUCT_DETAILS]:
+        '¿Necesitás saber algo más sobre este producto?',
+      [UseCaseType.LEARN_RETURN_POLICY]:
+        '¿Te quedó clara la política de devoluciones?',
       [UseCaseType.GET_STORE_HOURS]: '¿Puedo ayudarte con algo más?',
       [UseCaseType.CONTACT_SUPPORT]: '¿Necesitás ayuda con algo más?',
       [UseCaseType.GREETING]: '¿En qué puedo ayudarte hoy?',
@@ -228,4 +278,3 @@ export class UseCaseDetectionService {
     return prompts[useCaseType] || '¿Puedo ayudarte con algo más?';
   }
 }
-

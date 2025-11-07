@@ -2,7 +2,7 @@ import { UseCaseType } from '../../../common/interfaces/use-case.interface';
 
 /**
  * Use Case Workflow Configuration
- * 
+ *
  * Defines the required steps, allowed agents, and instructions for each use case type.
  */
 export interface UseCaseWorkflow {
@@ -15,13 +15,18 @@ export interface UseCaseWorkflow {
 
 /**
  * Use Case Workflow Definitions
- * 
+ *
  * Maps each use case type to its workflow configuration.
  */
 export const USE_CASE_WORKFLOWS: Record<UseCaseType, UseCaseWorkflow> = {
   [UseCaseType.CHECK_ORDER_STATUS]: {
     type: UseCaseType.CHECK_ORDER_STATUS,
-    requiredSteps: ['authenticate', 'identify_order', 'fetch_status', 'present_status'],
+    requiredSteps: [
+      'authenticate',
+      'identify_order',
+      'fetch_status',
+      'present_status',
+    ],
     allowedAgents: ['Orders Agent'],
     completionCriteria: 'Customer has received order status information',
     instructions: `
@@ -36,7 +41,12 @@ Steps to complete this use case:
 
   [UseCaseType.TRACK_SHIPMENT]: {
     type: UseCaseType.TRACK_SHIPMENT,
-    requiredSteps: ['authenticate', 'identify_order', 'fetch_tracking', 'present_tracking'],
+    requiredSteps: [
+      'authenticate',
+      'identify_order',
+      'fetch_tracking',
+      'present_tracking',
+    ],
     allowedAgents: ['Orders Agent'],
     completionCriteria: 'Customer has received tracking information',
     instructions: `
@@ -51,7 +61,12 @@ Steps to complete this use case:
 
   [UseCaseType.REQUEST_RETURN]: {
     type: UseCaseType.REQUEST_RETURN,
-    requiredSteps: ['authenticate', 'identify_order', 'verify_eligibility', 'provide_instructions'],
+    requiredSteps: [
+      'authenticate',
+      'identify_order',
+      'verify_eligibility',
+      'provide_instructions',
+    ],
     allowedAgents: ['Orders Agent'],
     completionCriteria: 'Customer has received return instructions',
     instructions: `
@@ -66,7 +81,12 @@ Steps to complete this use case:
 
   [UseCaseType.VERIFY_PAYMENT]: {
     type: UseCaseType.VERIFY_PAYMENT,
-    requiredSteps: ['authenticate', 'identify_order', 'fetch_payment', 'present_payment'],
+    requiredSteps: [
+      'authenticate',
+      'identify_order',
+      'fetch_payment',
+      'present_payment',
+    ],
     allowedAgents: ['Orders Agent'],
     completionCriteria: 'Customer has received payment information',
     instructions: `
@@ -81,9 +101,15 @@ Steps to complete this use case:
 
   [UseCaseType.FIND_PRODUCT]: {
     type: UseCaseType.FIND_PRODUCT,
-    requiredSteps: ['understand_need', 'search_products', 'present_products', 'check_satisfaction'],
+    requiredSteps: [
+      'understand_need',
+      'search_products',
+      'present_products',
+      'check_satisfaction',
+    ],
     allowedAgents: ['Products Agent'],
-    completionCriteria: 'Customer has seen relevant products and confirmed satisfaction',
+    completionCriteria:
+      'Customer has seen relevant products and confirmed satisfaction',
     instructions: `
 Steps to complete this use case:
 1. Understand what customer is looking for
@@ -95,7 +121,11 @@ Steps to complete this use case:
 
   [UseCaseType.CHECK_SIZE_AVAILABILITY]: {
     type: UseCaseType.CHECK_SIZE_AVAILABILITY,
-    requiredSteps: ['identify_product', 'check_variants', 'present_availability'],
+    requiredSteps: [
+      'identify_product',
+      'check_variants',
+      'present_availability',
+    ],
     allowedAgents: ['Products Agent'],
     completionCriteria: 'Customer has received size availability information',
     instructions: `
@@ -175,7 +205,12 @@ Steps to complete this use case:
   [UseCaseType.OTHER]: {
     type: UseCaseType.OTHER,
     requiredSteps: ['understand_query', 'provide_response'],
-    allowedAgents: ['Orders Agent', 'Products Agent', 'FAQ Agent', 'Greetings Agent'],
+    allowedAgents: [
+      'Orders Agent',
+      'Products Agent',
+      'FAQ Agent',
+      'Greetings Agent',
+    ],
     completionCriteria: 'Customer query has been addressed',
     instructions: `
 Steps to complete this use case:
@@ -188,7 +223,7 @@ Steps to complete this use case:
 
 /**
  * Step Descriptions
- * 
+ *
  * Human-readable descriptions for common workflow steps.
  */
 export const STEP_DESCRIPTIONS: Record<string, string> = {
@@ -232,4 +267,3 @@ export const STEP_DESCRIPTIONS: Record<string, string> = {
   understand_query: 'Understand customer query',
   provide_response: 'Provide response',
 };
-

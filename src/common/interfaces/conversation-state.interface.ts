@@ -50,14 +50,16 @@ export interface ConversationState {
  */
 export function findProductByName(
   state: ConversationState | null,
-  searchName: string
+  searchName: string,
 ): ProductMention | null {
   if (!state || !state.state?.products?.length) return null;
 
   const searchLower = searchName.toLowerCase();
-  return state.state.products.find(p =>
-    p.productName.toLowerCase().includes(searchLower)
-  ) || null;
+  return (
+    state.state.products.find((p) =>
+      p.productName.toLowerCase().includes(searchLower),
+    ) || null
+  );
 }
 
 /**
@@ -65,9 +67,9 @@ export function findProductByName(
  */
 export function findProductById(
   state: ConversationState | null,
-  productId: number
+  productId: number,
 ): ProductMention | null {
   if (!state || !state.state?.products?.length) return null;
 
-  return state.state.products.find(p => p.productId === productId) || null;
+  return state.state.products.find((p) => p.productId === productId) || null;
 }

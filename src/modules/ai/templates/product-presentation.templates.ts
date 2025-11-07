@@ -5,7 +5,11 @@
  * Used by ProductPresentationService to generate context-aware instructions.
  */
 
-export type PresentationMode = 'FULL_CARD' | 'SIZE_ONLY' | 'COMPACT' | 'TEXT_ONLY';
+export type PresentationMode =
+  | 'FULL_CARD'
+  | 'SIZE_ONLY'
+  | 'COMPACT'
+  | 'TEXT_ONLY';
 
 /**
  * FULL_CARD - Complete product presentation
