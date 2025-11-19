@@ -1061,6 +1061,7 @@ Continue helping the customer achieve their goal naturally.
       const ordersAgentResult = {
         output_text: ordersAgentResultTemp.finalOutput ?? '',
         newItems: ordersAgentResultTemp.newItems,
+        classifierIntent: mettaClassifierResult.output_parsed.intent,
       };
       return ordersAgentResult;
     } else if (mettaClassifierResult.output_parsed.intent == 'PRODUCT_INFO') {
@@ -1085,6 +1086,7 @@ Continue helping the customer achieve their goal naturally.
       const productsAgentResult = {
         output_text: productsAgentResultTemp.finalOutput ?? '',
         newItems: productsAgentResultTemp.newItems,
+        classifierIntent: mettaClassifierResult.output_parsed.intent,
       };
       return productsAgentResult;
     } else if (mettaClassifierResult.output_parsed.intent == 'STORE_INFO') {
@@ -1102,6 +1104,7 @@ Continue helping the customer achieve their goal naturally.
       const faqAgentResult = {
         output_text: faqAgentResultTemp.finalOutput ?? '',
         newItems: faqAgentResultTemp.newItems,
+        classifierIntent: mettaClassifierResult.output_parsed.intent,
       };
       return faqAgentResult;
     } else {
@@ -1119,6 +1122,7 @@ Continue helping the customer achieve their goal naturally.
       const greetingsAgentResult = {
         output_text: greetingsAgentResultTemp.finalOutput ?? '',
         newItems: greetingsAgentResultTemp.newItems,
+        classifierIntent: mettaClassifierResult.output_parsed.intent,
       };
       return greetingsAgentResult;
     }

@@ -149,16 +149,42 @@ export class WorkflowAIService {
       );
     }
 
-    // 3.5. Get classifier intent first (need to detect goal)
-    const classifierIntent = this.getClassifierIntent(
+    // 3.5. Get active goal from conversation state (if it exists)
+    const existingGoal = conversationState?.state?.activeGoal;
+    if (existingGoal) {
+      // Normalize Date fields (they come as strings from JSON)
+      if (typeof existingGoal.startedAt === 'string') {
+        existingGoal.startedAt = new Date(existingGoal.startedAt);
+      }
+      if (existingGoal.completedAt && typeof existingGoal.completedAt === 'string') {
+        existingGoal.completedAt = new Date(existingGoal.completedAt);
+      }
+      if (typeof existingGoal.lastActivityAt === 'string') {
+        existingGoal.lastActivityAt = new Date(existingGoal.lastActivityAt);
+      }
+
+      this.logger.log(`Found existing goal: ${existingGoal.type}`, {
+        goalId: existingGoal.goalId,
+        status: existingGoal.status,
+      });
+    }
+
+    // 4. Process with workflow (pass existing goal as context if available)
+    const workflowResult = await this.runWorkflow(
       resolvedContent,
       context,
       dbMessages,
+      conversationState,
+      existingGoal || null,
     );
 
-    this.logger.log(`Classifier intent detected: ${classifierIntent}`);
+    const { response, products } = workflowResult;
 
-    // 3.6. Detect or continue customer goal (SIMPLIFIED from use case)
+    // 4.5. Extract classifier intent from workflow result (real AI classification)
+    const classifierIntent = workflowResult.classifierIntent || 'OTHERS';
+    this.logger.log(`Classifier intent from workflow: ${classifierIntent}`);
+
+    // 4.6. Detect or continue customer goal using REAL classifier result
     const goal = this.goalDetectionService.detectGoal(
       message.content,
       classifierIntent,
@@ -166,52 +192,16 @@ export class WorkflowAIService {
       conversationState,
     );
 
-    let initialState: ConversationState['state'] | null = null; // State before processing (for incoming message)
+    // Capture initial state (BEFORE goal update) for incoming message audit trail
+    const initialState: ConversationState['state'] = {
+      products: conversationState?.state?.products || [],
+      activeGoal: existingGoal || null,
+      recentGoals: conversationState?.state?.recentGoals || [],
+      lastTopic: conversationState?.state?.lastTopic,
+      summary: conversationState?.state?.summary,
+    };
 
-    if (goal) {
-      // Normalize Date fields (they come as strings from JSON)
-      if (typeof goal.startedAt === 'string') {
-        goal.startedAt = new Date(goal.startedAt);
-      }
-      if (goal.completedAt && typeof goal.completedAt === 'string') {
-        goal.completedAt = new Date(goal.completedAt);
-      }
-      if (typeof goal.lastActivityAt === 'string') {
-        goal.lastActivityAt = new Date(goal.lastActivityAt);
-      }
-
-      this.logger.log(`Processing goal: ${goal.type}`, {
-        goalId: goal.goalId,
-        status: goal.status,
-        topic: goal.context?.topic,
-      });
-
-      // Capture initial state (BEFORE processing) for incoming message
-      // This creates a snapshot of the state when the user sent their message
-      initialState = {
-        products: conversationState?.state?.products || [],
-        activeGoal: goal,
-        recentGoals: conversationState?.state?.recentGoals || [],
-        lastTopic: conversationState?.state?.lastTopic,
-        summary: conversationState?.state?.summary,
-      };
-
-      this.logger.log('Initial state captured for incoming message', {
-        goalType: goal.type,
-        hasRecentGoals: (conversationState?.state?.recentGoals?.length || 0) > 0,
-      });
-    }
-
-    // 4. Process with workflow (pass dbMessages, state, and goal context)
-    const { response, products, metadata: workflowMetadata } = await this.runWorkflow(
-      resolvedContent,
-      context,
-      dbMessages,
-      conversationState,
-      goal,
-    );
-
-    // 4.5. Update goal state after processing (SIMPLIFIED - no complex step tracking)
+    // 4.7. Update goal state after processing (SIMPLIFIED - no complex step tracking)
     if (goal) {
       // Add simple progress marker based on response
       await this.addSimpleProgressMarkers(goal, response, products);
@@ -293,7 +283,7 @@ export class WorkflowAIService {
     dbMessages?: any[],
     conversationState?: ConversationState | null,
     goal?: CustomerGoal | null,
-  ): Promise<AIServiceResponse> {
+  ): Promise<AIServiceResponse & { classifierIntent?: string }> {
     try {
       if (!context?.conversationId) {
         throw new Error('conversationId is required for workflow');
@@ -386,9 +376,7 @@ export class WorkflowAIService {
       // Extract response text
       const response = result.output_text || 'No response generated';
 
-      // TODO: Extract products from workflow execution
-      // The workflow doesn't currently track products like the old system
-      // This will need to be implemented if product tracking is required
+      // Empty products array (product mentions extracted separately)
       const products: Array<any> = [];
 
       // Extract product mentions from MCP tool calls (real IDs) or text (fallback)
@@ -447,6 +435,7 @@ export class WorkflowAIService {
       return {
         response,
         products,
+        classifierIntent: result.classifierIntent,
         metadata: {
           state: updatedConversationState?.state || { products: [] },
         },
@@ -630,89 +619,6 @@ export class WorkflowAIService {
     }
   }
 
-  /**
-   * Get classifier intent using keyword matching
-   *
-   * This is called before the full workflow to detect the use case type.
-   * Uses simple keyword heuristics to infer intent without running the workflow.
-   *
-   * TODO: Refactor workflow to expose classifier result directly to avoid this heuristic.
-   */
-  private getClassifierIntent(
-    message: string,
-    context: MessageContext,
-    dbMessages?: any[],
-  ): string {
-    // Use keyword inference directly without running workflow
-    // This avoids duplicate workflow execution
-    return this.inferIntentFromMessage(message);
-  }
-
-  /**
-   * Infer intent from message using simple keyword matching
-   *
-   * This is a fallback when we can't get the classifier result directly.
-   * TODO: Refactor workflow to expose classifier result
-   */
-  private inferIntentFromMessage(message: string): string {
-    const messageLower = message.toLowerCase();
-
-    // ORDER_STATUS keywords
-    if (
-      messageLower.includes('pedido') ||
-      messageLower.includes('order') ||
-      messageLower.includes('seguimiento') ||
-      messageLower.includes('tracking') ||
-      messageLower.includes('envio') ||
-      messageLower.includes('entrega') ||
-      messageLower.includes('pago') ||
-      messageLower.includes('payment') ||
-      messageLower.includes('devolucion') ||
-      messageLower.includes('return')
-    ) {
-      return 'ORDER_STATUS';
-    }
-
-    // PRODUCT_INFO keywords
-    if (
-      messageLower.includes('producto') ||
-      messageLower.includes('product') ||
-      messageLower.includes('jean') ||
-      messageLower.includes('remera') ||
-      messageLower.includes('talle') ||
-      messageLower.includes('size') ||
-      messageLower.includes('stock') ||
-      messageLower.includes('precio') ||
-      messageLower.includes('price') ||
-      messageLower.includes('color')
-    ) {
-      return 'PRODUCT_INFO';
-    }
-
-    // STORE_INFO keywords
-    if (
-      messageLower.includes('horario') ||
-      messageLower.includes('hours') ||
-      messageLower.includes('contacto') ||
-      messageLower.includes('contact') ||
-      messageLower.includes('politica') ||
-      messageLower.includes('policy') ||
-      messageLower.includes('cambio') ||
-      messageLower.includes('exchange')
-    ) {
-      return 'STORE_INFO';
-    }
-
-    // Default to OTHERS
-    return 'OTHERS';
-  }
-
-  /**
-   * Update use case progress based on agent response
-   *
-   * This implementation marks steps as complete based on keywords and context.
-   * It covers all step types defined in use case workflows.
-   */
   /**
    * Add simple progress markers to goal (SIMPLIFIED - no brittle keyword matching)
    * Just tracks major milestones based on goal type and presence of products
