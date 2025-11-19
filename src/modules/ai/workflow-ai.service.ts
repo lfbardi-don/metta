@@ -10,19 +10,13 @@ import {
   CustomerGoal,
   GoalType,
 } from '../../common/interfaces';
-import {
-  UseCase,
-  UseCaseStatus,
-  UseCaseState,
-} from '../../common/interfaces/use-case.interface';
 import { GuardrailsService } from '../guardrails/guardrails.service';
 import { getGuardrailFallbackMessage } from '../guardrails/guardrail-messages.constant';
 import { PersistenceService } from '../persistence/persistence.service';
 import { PrismaService } from '../persistence/prisma.service';
 import { resolvePIIPlaceholders } from '../../common/helpers/resolve-pii.helper';
 import { ProductPresentationService } from './product-presentation.service';
-import { UseCaseDetectionService } from './services/use-case-detection.service';
-import { USE_CASE_WORKFLOWS } from './config/use-case-workflows.config';
+import { GoalDetectionService } from './services/goal-detection.service';
 
 /**
  * Response from AI service with text and optional product images
@@ -58,7 +52,7 @@ export class WorkflowAIService {
     private readonly guardrailsService: GuardrailsService,
     private readonly persistenceService: PersistenceService,
     private readonly productPresentationService: ProductPresentationService,
-    private readonly useCaseDetectionService: UseCaseDetectionService,
+    private readonly goalDetectionService: GoalDetectionService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -164,7 +158,7 @@ export class WorkflowAIService {
     this.logger.log(`Classifier intent detected: ${classifierIntent}`);
 
     // 3.6. Detect or continue customer goal (SIMPLIFIED from use case)
-    const goal = this.useCaseDetectionService.detectGoal(
+    const goal = this.goalDetectionService.detectGoal(
       message.content,
       classifierIntent,
       context.conversationHistory || [],
@@ -199,11 +193,6 @@ export class WorkflowAIService {
         recentGoals: conversationState?.state?.recentGoals || [],
         lastTopic: conversationState?.state?.lastTopic,
         summary: conversationState?.state?.summary,
-        // Keep legacy useCases for backward compatibility during migration
-        useCases: conversationState?.state?.useCases || {
-          activeCases: [],
-          completedCases: [],
-        },
       };
 
       this.logger.log('Initial state captured for incoming message', {
@@ -284,7 +273,7 @@ export class WorkflowAIService {
       response: finalResponse,
       products,
       metadata: {
-        state: finalConversationState?.state || { products: [], useCases: { activeCases: [], completedCases: [] } },
+        state: finalConversationState?.state || { products: [] },
       },
       initialState, // State before processing (for incoming message audit trail)
     };
@@ -801,35 +790,4 @@ export class WorkflowAIService {
     return summaries[goal.type] || 'Customer interaction';
   }
 
-  /**
-   * DEPRECATED: Old use case progress tracking (kept for backward compatibility)
-   * Use addSimpleProgressMarkers() instead
-   */
-  private updateUseCaseProgress(
-    useCase: UseCase,
-    response: string,
-    context: MessageContext,
-  ): void {
-    // DEPRECATED - Simplified goal system doesn't use step tracking
-    this.logger.warn(
-      'updateUseCaseProgress called but deprecated - use goal system instead',
-    );
-  }
-
-  /**
-   * DEPRECATED: Old use case state saving (kept for backward compatibility)
-   * Use persistenceService.setActiveGoal() instead
-   */
-  private async saveUseCaseState(
-    conversationId: string,
-    useCase: UseCase,
-    currentState: ConversationState | null,
-  ): Promise<void> {
-    // DEPRECATED - Simplified goal system uses different persistence
-    this.logger.warn(
-      'saveUseCaseState called but deprecated - use goal system instead',
-    );
-    // Method kept as stub for backward compatibility
-    // New code should use: persistenceService.setActiveGoal()
-  }
 }

@@ -1,5 +1,3 @@
-import { UseCaseState } from './use-case.interface';
-
 /**
  * Represents a product mention in the conversation
  * Used to track products shown to customers and prevent LLM ID hallucination
@@ -126,9 +124,6 @@ export interface ConversationState {
 
     /** Reason for escalation */
     escalationReason?: string;
-
-    /** DEPRECATED: Use activeGoal instead */
-    useCases?: UseCaseState;
   };
 
   /** Created timestamp */

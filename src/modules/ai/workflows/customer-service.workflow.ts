@@ -8,7 +8,6 @@ import {
 } from '@openai/agents';
 import { z } from 'zod';
 import { ConversationState } from '../../../common/interfaces';
-import { UseCase } from '../../../common/interfaces/use-case.interface';
 import { PresentationMode } from '../templates/product-presentation.templates';
 
 /**
