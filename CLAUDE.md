@@ -69,6 +69,7 @@ AppModule
 │   └── Imports: AIModule, IntegrationsModule
 └── AIModule
     ├── WorkflowAIService - Workflow system with MCP tools
+    ├── GoalDetectionService - Customer goal detection and tracking
     └── imports GuardrailsModule
 ```
 
@@ -97,10 +98,11 @@ AppModule
 
 **Core System - Fully Implemented:**
 - ✅ **WorkflowAIService** - Workflow system with MCP integration and guardrails
+- ✅ **GoalDetectionService** - Customer goal detection and tracking (7 goal types)
 - ✅ **GuardrailsService** - Full validation with PII detection, prompt injection detection, OpenAI Moderation API integration
 - ✅ **QueueService** - Complete SQS integration with polling, message handling, and graceful shutdown
 - ✅ **QueueProcessor** - Full message processing pipeline with guardrails and workflow AI integration
-- ✅ **PersistenceService** - Message persistence with conversation history management
+- ✅ **PersistenceService** - Message persistence with conversation history and state management
 - ✅ **ChatwootService** - Core sendMessage() method fully implemented
 - ✅ **OdooService** - ERP integration (pending MCP refactor)
 
@@ -124,6 +126,7 @@ AppModule
 All type contracts in `src/common/interfaces/`:
 - `chatwoot-webhook.interface.ts` - ChatwootWebhookPayload (from Lambda), SQSMessagePayload
 - `message.interface.ts` - IncomingMessage, OutgoingMessage, MessageContext, `fromChatwootWebhook()` helper
+- `conversation-state.interface.ts` - ConversationState, CustomerGoal, GoalType, ProductMention, helper functions
 - `odoo.interface.ts` - OdooProduct, OdooOrder, OdooCustomer (for future MCP refactor)
 - `queue.interface.ts` - QueueConfig, ProcessingResult
 - `guardrail.interface.ts` - GuardrailCheck, GuardrailResult
@@ -162,11 +165,14 @@ const ordersTools = hostedMcpTool({
 **Location**: `src/modules/ai/workflow-ai.service.ts`
 
 Responsibilities:
-- Load conversation history from database
+- Load conversation history and state from database
 - Apply input guardrails (PII detection, toxicity, injection)
+- Detect or continue customer goals (via GoalDetectionService)
 - Resolve PII placeholders before sending to MCP tools
-- Execute workflow with conversation context
+- Execute workflow with conversation context and goal state
+- Extract product mentions from MCP tool calls or text (with state lookup)
 - Apply output guardrails (PII leaks, professionalism, relevance)
+- Update conversation state and goals
 - Return sanitized response
 
 ### MCP Server Pattern
@@ -175,6 +181,115 @@ Tools are implemented in separate Cloudflare Workers projects:
 - `nuvemshop-products/` - Product catalog and search
 
 Each MCP server registers tools using the `@modelcontextprotocol/sdk` package.
+
+## Goal System
+
+The system tracks customer goals throughout conversations to maintain context and provide coherent multi-turn interactions.
+
+### GoalDetectionService
+**Location**: `src/modules/ai/services/goal-detection.service.ts`
+
+Responsibilities:
+- Detect customer intent from messages using classifier results
+- Map intents to goal types
+- Create or continue existing goals
+- Extract minimal context (order IDs, product IDs, topics)
+
+### Goal Types (7 simplified types)
+
+```typescript
+enum GoalType {
+  ORDER_INQUIRY     // Order status, tracking, payments, returns
+  PRODUCT_SEARCH    // Product discovery and search
+  PRODUCT_QUESTION  // Specific product details (size, availability)
+  STORE_INFO        // Policies, hours, contact information
+  GREETING          // Casual conversation
+  OTHER             // Fallback for unmatched intents
+}
+```
+
+**Simplified from 12 use case types to 7 focused goal types** - focuses on WHAT the customer wants, not HOW we process it.
+
+### CustomerGoal Structure
+
+```typescript
+interface CustomerGoal {
+  goalId: string;              // UUID
+  type: GoalType;              // Goal category
+  status: 'active' | 'completed';  // Only 2 states (simplified)
+  startedAt: Date;
+  completedAt?: Date;
+  lastActivityAt: Date;        // For timeout detection
+  context: {
+    orderId?: string;          // For order-related goals
+    productIds?: number[];     // For product-related goals
+    topic?: string;            // Free-form topic description
+  };
+  progressMarkers?: string[];  // Debugging breadcrumbs
+  detectedFrom?: string;       // Original message (first 100 chars)
+}
+```
+
+### ConversationState Tracking
+
+Stored in PostgreSQL `ConversationState` table as JSONB:
+```typescript
+state: {
+  products: ProductMention[];        // Products shown (prevents ID hallucination)
+  activeGoal?: CustomerGoal;         // Current customer goal
+  recentGoals?: CustomerGoal[];      // Last 3 completed goals
+  lastTopic?: string;                // Continuity
+  lastAgentType?: string;            // Which specialist handled last
+  summary?: string;                  // Human-readable summary
+  needsHumanHelp?: boolean;          // Escalation flag
+  escalationReason?: string;
+}
+```
+
+### Product Mention Tracking
+
+Prevents LLM ID hallucination by tracking all products shown to customer:
+
+```typescript
+interface ProductMention {
+  productId: number;          // Real Nuvemshop product ID
+  productName: string;        // For fuzzy matching
+  mentionedAt: Date;
+  context: 'search' | 'question' | 'interest' | 'recommendation';
+}
+```
+
+**Product Extraction Flow:**
+1. **Primary:** Extract from MCP tool calls (has real IDs from Nuvemshop API)
+2. **Fallback:** Extract from text → lookup in conversation state by name
+   - Match found? Use real ID from state ✅
+   - No match? Skip (no invalid entries created) ✅
+
+Helper functions:
+- `findProductByName(state, name)` - Fuzzy matching (case-insensitive contains)
+- `findProductById(state, id)` - Exact ID lookup
+
+### Goal Detection Flow
+
+```
+User Message
+    ↓
+Classifier Intent (ORDER_STATUS, PRODUCT_INFO, STORE_INFO, OTHERS)
+    ↓
+GoalDetectionService.detectGoal()
+    ↓
+Map Intent → GoalType
+    ↓
+Check for active goal (continue if same type or related)
+    ↓
+Create new goal OR update existing lastActivityAt
+    ↓
+Extract context (order ID, product IDs, topic)
+    ↓
+Store in ConversationState (JSONB)
+```
+
+**Related Goals:** PRODUCT_SEARCH and PRODUCT_QUESTION are treated as the same journey (customer shopping flow).
 
 ## Environment Setup
 
@@ -223,7 +338,7 @@ Copy `.env.example` to `.env` and configure:
 
 **ChatwootController is optional:** Routes are `/test/chatwoot/health` and `/test/chatwoot/simulate`. NOT used in production (Lambda handles webhooks).
 
-**Workflow execution:** WorkflowAIService loads conversation history from database, processes the latest message with the workflow, and returns the response. Conversation history is passed to the workflow as `AgentInputItem[]`.
+**Workflow execution:** WorkflowAIService loads conversation history and state from database, detects/continues customer goals, processes the latest message with the workflow (including goal context), and returns the response. Conversation history is passed to the workflow as `AgentInputItem[]`. Product mentions are extracted from MCP tool calls (primary) or text with state lookup (fallback).
 
 **Guardrail validators:** Each returns `GuardrailCheck` with `type`, `passed`, optional `message`, and optional `score`.
 
