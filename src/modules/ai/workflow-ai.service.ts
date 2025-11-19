@@ -9,6 +9,7 @@ import {
   ProductMention,
   CustomerGoal,
   GoalType,
+  findProductByName,
 } from '../../common/interfaces';
 import { GuardrailsService } from '../guardrails/guardrails.service';
 import { getGuardrailFallbackMessage } from '../guardrails/guardrail-messages.constant';
@@ -421,10 +422,10 @@ export class WorkflowAIService {
       // Fallback: Extract from text if no tool calls found
       // (e.g., when FAQ Agent or Greetings Agent responds)
       if (productMentions.length === 0) {
-        productMentions = this.extractProductMentions(response);
+        productMentions = this.extractProductMentions(response, conversationState);
         if (productMentions.length > 0) {
-          this.logger.warn(
-            `Using text extraction fallback - extracted ${productMentions.length} product(s) without real IDs`,
+          this.logger.log(
+            `Using text extraction fallback - matched ${productMentions.length} product(s) from conversation state`,
           );
         }
       }
@@ -457,7 +458,7 @@ export class WorkflowAIService {
   }
 
   /**
-   * Extract product mentions from the workflow response
+   * Extract product mentions from the workflow response (text fallback)
    *
    * Parses the markdown response to find product cards and extract product information.
    * Product cards follow this format:
@@ -465,14 +466,18 @@ export class WorkflowAIService {
    *   **PRODUCT NAME**
    *   Precio: $XX,XXX | ...
    *
-   * TODO: This is a simple text-based extraction. Ideally, the workflow should
-   * return structured data about products shown, or we should track MCP tool calls.
-   * For Phase 1, this provides basic tracking to prevent ID hallucination.
+   * This is a FALLBACK method used when MCP tool extraction fails (e.g., FAQ or Greetings agents).
+   * It looks up products by name in the conversation state to get real IDs.
+   * Products not found in state are SKIPPED (no productId: 0 entries created).
    *
    * @param response - The workflow response text
-   * @returns Array of ProductMention objects
+   * @param conversationState - Current conversation state to lookup products by name
+   * @returns Array of ProductMention objects with real IDs from conversation state
    */
-  private extractProductMentions(response: string): ProductMention[] {
+  private extractProductMentions(
+    response: string,
+    conversationState: ConversationState | null | undefined,
+  ): ProductMention[] {
     const productMentions: ProductMention[] = [];
 
     try {
@@ -493,24 +498,29 @@ export class WorkflowAIService {
           continue;
         }
 
-        // For now, we extract just the name without the ID
-        // The ID will need to come from MCP tool tracking in a future enhancement
-        productMentions.push({
-          productId: 0, // TODO: Extract from MCP tool results, not text
-          productName,
-          mentionedAt: new Date(),
-          context: 'recommendation',
-        });
+        // Look up product in conversation state by name (fuzzy match)
+        const existingProduct = findProductByName(conversationState, productName);
+
+        if (existingProduct) {
+          // Found in state - use real product ID
+          productMentions.push({
+            productId: existingProduct.productId,
+            productName: existingProduct.productName, // Use canonical name from state
+            mentionedAt: new Date(),
+            context: 'recommendation',
+          });
+        } else {
+          // Not found in state - skip (don't create invalid entries)
+          this.logger.debug(
+            `Product "${productName}" found in text but not in conversation state - skipping`,
+          );
+        }
       }
 
-      // Deduplicate by product name (case-insensitive)
+      // Deduplicate by product ID
       const uniqueMentions = productMentions.filter(
         (mention, index, self) =>
-          index ===
-          self.findIndex(
-            (m) =>
-              m.productName.toLowerCase() === mention.productName.toLowerCase(),
-          ),
+          index === self.findIndex((m) => m.productId === mention.productId),
       );
 
       return uniqueMentions;

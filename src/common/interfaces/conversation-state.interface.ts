@@ -137,7 +137,7 @@ export interface ConversationState {
  * Helper to find product by name (fuzzy matching with .contains)
  */
 export function findProductByName(
-  state: ConversationState | null,
+  state: ConversationState | null | undefined,
   searchName: string,
 ): ProductMention | null {
   if (!state || !state.state?.products?.length) return null;
@@ -154,7 +154,7 @@ export function findProductByName(
  * Helper to find product by exact ID
  */
 export function findProductById(
-  state: ConversationState | null,
+  state: ConversationState | null | undefined,
   productId: number,
 ): ProductMention | null {
   if (!state || !state.state?.products?.length) return null;
