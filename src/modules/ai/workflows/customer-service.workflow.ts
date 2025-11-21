@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { ConversationState } from '../../../common/interfaces';
 import { UseCase } from '../../../common/interfaces/use-case.interface';
 import { PresentationMode } from '../templates/product-presentation.templates';
+import { AIResponseSchema } from '../schemas/ai-response.schema';
 
 /**
  * Metta Customer Service Workflow
@@ -409,6 +410,7 @@ Before ending conversation:
 `,
   model: 'gpt-4.1',
   tools: [mcp],
+  outputType: AIResponseSchema,
   modelSettings: {
     temperature: 0.7,
     topP: 1,
@@ -821,6 +823,7 @@ Always finish upbeat and encouraging:
       maxTokens: 2048,
       store: true,
     },
+    outputType: AIResponseSchema,
   });
 };
 
@@ -924,6 +927,7 @@ Keep it polite, brief, brand-consistent, and **invisible about internal systems*
 `,
   model: 'gpt-4.1',
   tools: [fileSearch],
+  outputType: AIResponseSchema,
   modelSettings: {
     temperature: 0.4,
     topP: 1,
@@ -973,6 +977,7 @@ Don't give information about orders, products, or store policies.
 Don't repeat the same greeting more than twice in a row.
 If user repeats "hello" multiple times, respond once and then ask how you can help.`,
   model: 'gpt-4.1-mini',
+  outputType: AIResponseSchema,
   modelSettings: {
     temperature: 0.6,
     topP: 1,
@@ -1060,7 +1065,7 @@ Continue helping the customer achieve their goal naturally.
       }
 
       const ordersAgentResult = {
-        output_text: ordersAgentResultTemp.finalOutput ?? '',
+        output: ordersAgentResultTemp.finalOutput,
         newItems: ordersAgentResultTemp.newItems,
       };
       return ordersAgentResult;
@@ -1084,7 +1089,7 @@ Continue helping the customer achieve their goal naturally.
       }
 
       const productsAgentResult = {
-        output_text: productsAgentResultTemp.finalOutput ?? '',
+        output: productsAgentResultTemp.finalOutput,
         newItems: productsAgentResultTemp.newItems,
       };
       return productsAgentResult;
@@ -1101,7 +1106,7 @@ Continue helping the customer achieve their goal naturally.
       }
 
       const faqAgentResult = {
-        output_text: faqAgentResultTemp.finalOutput ?? '',
+        output: faqAgentResultTemp.finalOutput,
         newItems: faqAgentResultTemp.newItems,
       };
       return faqAgentResult;
@@ -1118,7 +1123,7 @@ Continue helping the customer achieve their goal naturally.
       }
 
       const greetingsAgentResult = {
-        output_text: greetingsAgentResultTemp.finalOutput ?? '',
+        output: greetingsAgentResultTemp.finalOutput,
         newItems: greetingsAgentResultTemp.newItems,
       };
       return greetingsAgentResult;
