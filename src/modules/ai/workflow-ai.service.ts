@@ -21,6 +21,7 @@ import { PersistenceService } from '../persistence/persistence.service';
 import { PrismaService } from '../persistence/prisma.service';
 import { resolvePIIPlaceholders } from '../../common/helpers/resolve-pii.helper';
 import { ProductPresentationService } from './product-presentation.service';
+import { ProductExtractionService } from './services/product-extraction.service';
 import { UseCaseDetectionService } from './services/use-case-detection.service';
 import { USE_CASE_WORKFLOWS } from './config/use-case-workflows.config';
 
@@ -60,6 +61,7 @@ export class WorkflowAIService {
     private readonly guardrailsService: GuardrailsService,
     private readonly persistenceService: PersistenceService,
     private readonly productPresentationService: ProductPresentationService,
+    private readonly productExtractionService: ProductExtractionService,
     private readonly useCaseDetectionService: UseCaseDetectionService,
     private readonly prisma: PrismaService,
   ) { }
@@ -377,18 +379,13 @@ export class WorkflowAIService {
       let productMentions: ProductMention[] = [];
 
       if (result.newItems && result.newItems.length > 0) {
-        productMentions = this.extractProductsFromToolCalls(result.newItems);
+        productMentions = this.productExtractionService.extractProductsFromToolCalls(result.newItems);
       }
 
       // If no tool calls, check if LLM returned products in structured output
       // (Note: These might lack IDs if not from tools, so we treat them carefully)
       if (productMentions.length === 0 && output.products && output.products.length > 0) {
-        productMentions = output.products.map(p => ({
-          productId: p.id || 0,
-          productName: p.name,
-          mentionedAt: new Date(),
-          context: 'recommendation',
-        }));
+        productMentions = this.productExtractionService.extractProductsFromStructuredOutput(output.products);
         this.logger.log(`Using structured output products: ${productMentions.length}`);
       }
 
@@ -423,103 +420,7 @@ export class WorkflowAIService {
 
 
 
-  /**
-   * Extract products from MCP tool calls (real product IDs)
-   *
-   * Parses newItems array from workflow execution to find MCP product tool calls
-   * and extracts actual product IDs from their responses.
-   *
-   * This solves the hallucination problem: instead of extracting product names from
-   * markdown text (which loses the IDs), we get the real IDs directly from MCP responses.
-   *
-   * @param newItems - Array of RunItem from workflow execution
-   * @returns Array of ProductMention objects with real product IDs
-   */
-  private extractProductsFromToolCalls(newItems: any[]): ProductMention[] {
-    const productMentions: ProductMention[] = [];
-    const now = new Date();
 
-    try {
-      // Filter for tool call items with mcp_call and output
-      const toolOutputs = newItems.filter(
-        (item) =>
-          item?.type === 'tool_call_item' &&
-          item?.rawItem?.name === 'mcp_call' &&
-          item?.rawItem?.output,
-      );
-
-      for (const item of toolOutputs) {
-        // Get actual MCP tool name from providerData (not 'mcp_call' wrapper)
-        const toolName = item.rawItem?.providerData?.name;
-
-        // Only process product-related MCP tools
-        if (!toolName || !toolName.includes('nuvemshop_product')) {
-          continue;
-        }
-
-        // Parse tool output (could be string or object)
-        let toolResult;
-        if (typeof item.rawItem.output === 'string') {
-          try {
-            toolResult = JSON.parse(item.rawItem.output);
-          } catch (parseError) {
-            this.logger.warn(`Failed to parse tool output for ${toolName}`, {
-              error: parseError.message,
-              outputPreview: item.rawItem.output?.substring(0, 200),
-            });
-            continue;
-          }
-        } else {
-          toolResult = item.rawItem.output;
-        }
-
-        // Extract products based on tool type
-        if (toolName === 'search_nuvemshop_products') {
-          // Search returns array or { products: [...] }
-          const products = Array.isArray(toolResult)
-            ? toolResult
-            : toolResult.products || [];
-
-          for (const product of products) {
-            if (product.id && product.name) {
-              productMentions.push({
-                productId: product.id,
-                productName: product.name,
-                mentionedAt: now,
-                context: 'search',
-              });
-            }
-          }
-        } else if (
-          toolName === 'get_nuvemshop_product' ||
-          toolName === 'get_nuvemshop_product_by_sku'
-        ) {
-          // Get returns single product object
-          if (toolResult.id && toolResult.name) {
-            productMentions.push({
-              productId: toolResult.id,
-              productName: toolResult.name,
-              mentionedAt: now,
-              context: 'question',
-            });
-          }
-        }
-      }
-
-      // Deduplicate by product ID
-      const uniqueMentions = productMentions.filter(
-        (mention, index, self) =>
-          index === self.findIndex((m) => m.productId === mention.productId),
-      );
-
-      return uniqueMentions;
-    } catch (error) {
-      this.logger.error('Failed to extract products from tool calls', {
-        error: error.message,
-      });
-      return [];
-    }
-  }
 
 
 
