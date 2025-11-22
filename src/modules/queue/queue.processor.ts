@@ -6,10 +6,8 @@ import {
   fromSimplifiedSQS,
   IncomingMessage,
 } from '../../common/interfaces';
-import { WorkflowAIService } from '../ai/workflow-ai.service';
-import { ChatwootService } from '../integrations/chatwoot/chatwoot.service';
-import { PersistenceService } from '../persistence/persistence.service';
 import { MessageBatcherService, MessageBatch } from './message-batcher.service';
+import { MessageProcessorService } from './services/message-processor.service';
 
 @Injectable()
 export class QueueProcessor implements OnModuleInit {
@@ -19,11 +17,9 @@ export class QueueProcessor implements OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     private readonly queueService: QueueService,
-    private readonly workflowAIService: WorkflowAIService,
-    private readonly chatwootService: ChatwootService,
-    private readonly persistenceService: PersistenceService,
     private readonly messageBatcher: MessageBatcherService,
-  ) {}
+    private readonly messageProcessor: MessageProcessorService,
+  ) { }
 
   async onModuleInit() {
     this.logger.log('Queue processor initialized');
@@ -217,9 +213,9 @@ export class QueueProcessor implements OnModuleInit {
         stack: error.stack,
         payload: payload
           ? {
-              messageId: payload.messageId,
-              conversationId: payload.conversationId,
-            }
+            messageId: payload.messageId,
+            conversationId: payload.conversationId,
+          }
           : 'unknown',
       });
 
@@ -276,61 +272,13 @@ export class QueueProcessor implements OnModuleInit {
     );
 
     try {
-      // 1. Convert all messages to IncomingMessage format
-      const incomingMessages: IncomingMessage[] = batch.messages.map((msg) =>
-        fromSimplifiedSQS(msg.payload),
+      // Delegate business logic to MessageProcessorService
+      await this.messageProcessor.processMessageBatch(
+        conversationId,
+        batch.messages.map((m) => m.payload),
       );
 
-      // 2. Save all incoming messages to persistence (audit log)
-      for (const incomingMessage of incomingMessages) {
-        await this.persistenceService.saveIncomingMessage(incomingMessage);
-      }
-
-      // 3. Process with Workflow AI
-      this.logger.log('Processing batch with Workflow AI service');
-      const { response, products, metadata, initialState } =
-        await this.workflowAIService.processMessage(
-          incomingMessages[incomingMessages.length - 1],
-        );
-
-      // Log product count for debugging
-      if (products.length > 0) {
-        this.logger.log(
-          `AI returned ${products.length} product(s) - formatted inline with images`,
-        );
-      }
-
-      // 3.5. Update incoming message with INITIAL state (before processing)
-      // This captures the state at the moment the user sent their message
-      const latestIncomingMessage = incomingMessages[incomingMessages.length - 1];
-      if (latestIncomingMessage.messageId && initialState) {
-        const updatedMetadata = {
-          ...latestIncomingMessage.metadata, // Keep source, accountId, etc.
-          state: initialState,                // Initial state (use case just detected)
-        };
-
-        await this.persistenceService.updateIncomingMessageMetadata(
-          conversationId,
-          latestIncomingMessage.messageId,
-          updatedMetadata,
-        );
-      }
-
-      // 4. Send AI response (text with inline markdown images)
-      // AI automatically formats products using card-style template with ![alt](url) syntax
-      this.logger.log('Sending response to Chatwoot');
-      const outgoingMessage = {
-        conversationId,
-        content: response,
-        messageType: 'text' as const,
-        metadata,
-      };
-      await this.chatwootService.sendMessage(outgoingMessage);
-
-      // 5. Save outgoing message to persistence (audit log)
-      await this.persistenceService.saveOutgoingMessage(outgoingMessage);
-
-      // 6. Delete ALL SQS messages in batch (only after successful processing)
+      // Delete ALL SQS messages in batch (only after successful processing)
       for (const { sqsMessage } of batch.messages) {
         await this.queueService.deleteMessage(sqsMessage.ReceiptHandle);
       }
@@ -354,9 +302,6 @@ export class QueueProcessor implements OnModuleInit {
 
       // Re-throw to allow caller to handle
       throw error;
-    } finally {
-      // Stop typing indicator when processing completes (success or failure)
-      this.chatwootService.setTypingStatus(conversationId, false);
     }
   }
 
