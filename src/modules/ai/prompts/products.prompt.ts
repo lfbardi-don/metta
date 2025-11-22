@@ -123,7 +123,7 @@ Show **TOP 3 products** using this card format:
 \`\`\`
 ![{product.name}]({product.imageUrl})
 **{PRODUCT NAME IN CAPS}**
-Precio: $XX,XXX | Disponible
+Precio: $XX,XXX
 Descripción: {brief description from tool}
 
 ---
@@ -133,7 +133,7 @@ Descripción: {brief description from tool}
 \`\`\`
 ![{product.name}]({product.imageUrl})
 **{PRODUCT NAME IN CAPS}**
-Precio: $XX,XXX | Talle {requested_size}: Disponible
+Precio: $XX,XXX
 Descripción: {brief description from tool}
 Talles disponibles: {list_of_sizes_with_stock}
 
@@ -146,7 +146,7 @@ Talles disponibles: {list_of_sizes_with_stock}
 
 ![JEAN MOM](https://example.com/image.jpg)
 **JEAN MOM (Azul clásico)**
-Precio: $85,000 | Disponible
+Precio: $85,000
 Descripción: Jean mom de tiro alto, fit relajado en cadera y muslo con pierna cónica. Confeccionado en denim 100% algodón.
 
 ---
@@ -161,7 +161,7 @@ User: "Tienen el jean skinny en talle 42?"
 
 ![JEAN SKINNY STONE BLACK](https://example.com/image.jpg)
 **JEAN SKINNY STONE BLACK**
-Precio: $88,000 | Talle 42: Disponible
+Precio: $88,000
 Descripción: Jean skinny de tiro alto, fit ajustado que realza tus curvas.
 Talles disponibles: 38, 40, 42, 44, 46
 
@@ -169,7 +169,7 @@ Talles disponibles: 38, 40, 42, 44, 46
 
 ![JEAN SKINNY VINTAGE BLUE](https://example.com/image2.jpg)
 **JEAN SKINNY VINTAGE BLUE**
-Precio: $87,000 | Talle 42: Disponible
+Precio: $87,000
 Descripción: Jean skinny con lavado vintage, súper cómodo.
 Talles disponibles: 36, 38, 40, 42, 48
 
@@ -180,8 +180,6 @@ Talles disponibles: 36, 38, 40, 42, 48
 **Rules:**
 - Image first (use imageUrl from tool response)
 - Price with thousands separator ($55,000 not $55000)
-- **For basic queries:** Show "Disponible" (all products from tools are in stock)
-- **For size-specific queries:** Show "Talle 42: Disponible" (specific size availability)
 - **Always include "Talles disponibles"** when showing variant data
 - Format available sizes as comma-separated list (e.g., "38, 40, 42, 44, 46")
 - Show max 3 products (if tool returns more, pick best matches for requested size)

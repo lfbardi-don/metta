@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { ConversationState } from '../../../common/interfaces';
 import { UseCase } from '../../../common/interfaces/use-case.interface';
 import { PresentationMode } from '../templates/product-presentation.templates';
+import { AIResponseSchema } from '../schemas/ai-response.schema';
 
 /**
  * Metta Customer Service Workflow
@@ -409,6 +410,7 @@ Before ending conversation:
 `,
   model: 'gpt-4.1',
   tools: [mcp],
+  outputType: AIResponseSchema,
   modelSettings: {
     temperature: 0.7,
     topP: 1,
@@ -638,7 +640,7 @@ Returns: Array of categories with id, name, description, parentId, subcategoryId
 \`\`\`markdown
 ![{product.name}]({product.imageUrl})
 **{PRODUCT NAME IN CAPS}**
-Precio: $XX,XXX | Disponible
+Precio: $XX,XXX
 Descripción: {brief description from tool}
 
 ---
@@ -648,7 +650,7 @@ Descripción: {brief description from tool}
 \`\`\`markdown
 ![{product.name}]({product.imageUrl})
 **{PRODUCT NAME IN CAPS}**
-Precio: $XX,XXX | Talle {size}: Disponible
+Precio: $XX,XXX
 Descripción: {brief description}
 Talles disponibles: 38, 40, 42, 44, 46
 
@@ -665,7 +667,7 @@ Customer: \"Tienen jeans mom?\"
 
 ![JEAN MOM](https://example.com/image.jpg)
 **JEAN MOM (Azul clásico)**
-Precio: $85,000 | Disponible
+Precio: $85,000
 Descripción: Jean mom de tiro alto, fit relajado en cadera y muslo con pierna cónica. Confeccionado en denim 100% algodón.
 
 ---
@@ -683,7 +685,7 @@ Customer: \"Tienen el jean skinny en talle 42?\"
 
 ![JEAN SKINNY STONE BLACK](https://example.com/image.jpg)
 **JEAN SKINNY STONE BLACK**
-Precio: $88,000 | Talle 42: Disponible
+Precio: $88,000
 Descripción: Jean skinny de tiro alto, fit ajustado que realza tus curvas.
 Talles disponibles: 38, 40, 42, 44, 46
 
@@ -821,6 +823,7 @@ Always finish upbeat and encouraging:
       maxTokens: 2048,
       store: true,
     },
+    outputType: AIResponseSchema,
   });
 };
 
@@ -924,6 +927,7 @@ Keep it polite, brief, brand-consistent, and **invisible about internal systems*
 `,
   model: 'gpt-4.1',
   tools: [fileSearch],
+  outputType: AIResponseSchema,
   modelSettings: {
     temperature: 0.4,
     topP: 1,
@@ -973,6 +977,7 @@ Don't give information about orders, products, or store policies.
 Don't repeat the same greeting more than twice in a row.
 If user repeats "hello" multiple times, respond once and then ask how you can help.`,
   model: 'gpt-4.1-mini',
+  outputType: AIResponseSchema,
   modelSettings: {
     temperature: 0.6,
     topP: 1,
@@ -1060,7 +1065,7 @@ Continue helping the customer achieve their goal naturally.
       }
 
       const ordersAgentResult = {
-        output_text: ordersAgentResultTemp.finalOutput ?? '',
+        output: ordersAgentResultTemp.finalOutput,
         newItems: ordersAgentResultTemp.newItems,
       };
       return ordersAgentResult;
@@ -1084,7 +1089,7 @@ Continue helping the customer achieve their goal naturally.
       }
 
       const productsAgentResult = {
-        output_text: productsAgentResultTemp.finalOutput ?? '',
+        output: productsAgentResultTemp.finalOutput,
         newItems: productsAgentResultTemp.newItems,
       };
       return productsAgentResult;
@@ -1101,7 +1106,7 @@ Continue helping the customer achieve their goal naturally.
       }
 
       const faqAgentResult = {
-        output_text: faqAgentResultTemp.finalOutput ?? '',
+        output: faqAgentResultTemp.finalOutput,
         newItems: faqAgentResultTemp.newItems,
       };
       return faqAgentResult;
@@ -1118,7 +1123,7 @@ Continue helping the customer achieve their goal naturally.
       }
 
       const greetingsAgentResult = {
-        output_text: greetingsAgentResultTemp.finalOutput ?? '',
+        output: greetingsAgentResultTemp.finalOutput,
         newItems: greetingsAgentResultTemp.newItems,
       };
       return greetingsAgentResult;

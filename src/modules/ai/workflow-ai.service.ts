@@ -21,6 +21,7 @@ import { PersistenceService } from '../persistence/persistence.service';
 import { PrismaService } from '../persistence/prisma.service';
 import { resolvePIIPlaceholders } from '../../common/helpers/resolve-pii.helper';
 import { ProductPresentationService } from './product-presentation.service';
+import { ProductExtractionService } from './services/product-extraction.service';
 import { UseCaseDetectionService } from './services/use-case-detection.service';
 import { USE_CASE_WORKFLOWS } from './config/use-case-workflows.config';
 
@@ -33,6 +34,8 @@ export interface AIServiceResponse {
   products: Array<any>;
   metadata?: Record<string, any>;
   initialState?: ConversationState['state'] | null; // State before processing (for incoming message audit trail)
+  intent?: string; // Detected intent
+  thinking?: string; // Chain of thought
 }
 
 /**
@@ -58,9 +61,10 @@ export class WorkflowAIService {
     private readonly guardrailsService: GuardrailsService,
     private readonly persistenceService: PersistenceService,
     private readonly productPresentationService: ProductPresentationService,
+    private readonly productExtractionService: ProductExtractionService,
     private readonly useCaseDetectionService: UseCaseDetectionService,
     private readonly prisma: PrismaService,
-  ) {}
+  ) { }
 
   /**
    * Process an incoming message through the workflow-based AI system
@@ -154,75 +158,51 @@ export class WorkflowAIService {
       );
     }
 
-    // 3.5. Get classifier intent first (need to detect goal)
-    const classifierIntent = this.getClassifierIntent(
+    // Capture initial state (BEFORE processing) for incoming message
+    const initialState: ConversationState['state'] = {
+      products: conversationState?.state?.products || [],
+      activeGoal: conversationState?.state?.activeGoal || null,
+      recentGoals: conversationState?.state?.recentGoals || [],
+      lastTopic: conversationState?.state?.lastTopic,
+      summary: conversationState?.state?.summary,
+      useCases: conversationState?.state?.useCases || {
+        activeCases: [],
+        completedCases: [],
+      },
+    };
+
+    // 4. Process with workflow
+    // We pass the current active goal if it exists, to provide context
+    const workflowResult = await this.runWorkflow(
       resolvedContent,
       context,
       dbMessages,
+      conversationState,
+      conversationState?.state?.activeGoal,
     );
 
-    this.logger.log(`Classifier intent detected: ${classifierIntent}`);
+    const { response, products, intent, thinking } = workflowResult;
 
-    // 3.6. Detect or continue customer goal (SIMPLIFIED from use case)
+    // 4.5. Detect or update customer goal based on AI's detected intent
     const goal = this.useCaseDetectionService.detectGoal(
       message.content,
-      classifierIntent,
+      intent || 'OTHERS',
       context.conversationHistory || [],
       conversationState,
     );
 
-    let initialState: ConversationState['state'] | null = null; // State before processing (for incoming message)
-
     if (goal) {
-      // Normalize Date fields (they come as strings from JSON)
-      if (typeof goal.startedAt === 'string') {
-        goal.startedAt = new Date(goal.startedAt);
-      }
-      if (goal.completedAt && typeof goal.completedAt === 'string') {
-        goal.completedAt = new Date(goal.completedAt);
-      }
-      if (typeof goal.lastActivityAt === 'string') {
-        goal.lastActivityAt = new Date(goal.lastActivityAt);
-      }
+      // Normalize Date fields
+      if (typeof goal.startedAt === 'string') goal.startedAt = new Date(goal.startedAt);
+      if (goal.completedAt && typeof goal.completedAt === 'string') goal.completedAt = new Date(goal.completedAt);
+      if (typeof goal.lastActivityAt === 'string') goal.lastActivityAt = new Date(goal.lastActivityAt);
 
-      this.logger.log(`Processing goal: ${goal.type}`, {
+      this.logger.log(`Goal detected/updated: ${goal.type}`, {
         goalId: goal.goalId,
         status: goal.status,
-        topic: goal.context?.topic,
+        intent,
       });
 
-      // Capture initial state (BEFORE processing) for incoming message
-      // This creates a snapshot of the state when the user sent their message
-      initialState = {
-        products: conversationState?.state?.products || [],
-        activeGoal: goal,
-        recentGoals: conversationState?.state?.recentGoals || [],
-        lastTopic: conversationState?.state?.lastTopic,
-        summary: conversationState?.state?.summary,
-        // Keep legacy useCases for backward compatibility during migration
-        useCases: conversationState?.state?.useCases || {
-          activeCases: [],
-          completedCases: [],
-        },
-      };
-
-      this.logger.log('Initial state captured for incoming message', {
-        goalType: goal.type,
-        hasRecentGoals: (conversationState?.state?.recentGoals?.length || 0) > 0,
-      });
-    }
-
-    // 4. Process with workflow (pass dbMessages, state, and goal context)
-    const { response, products, metadata: workflowMetadata } = await this.runWorkflow(
-      resolvedContent,
-      context,
-      dbMessages,
-      conversationState,
-      goal,
-    );
-
-    // 4.5. Update goal state after processing (SIMPLIFIED - no complex step tracking)
-    if (goal) {
       // Add simple progress marker based on response
       await this.addSimpleProgressMarkers(goal, response, products);
 
@@ -237,11 +217,6 @@ export class WorkflowAIService {
           summary,
         );
       }
-
-      this.logger.log(`Goal state updated: ${goal.type}`, {
-        goalId: goal.goalId,
-        progressMarkers: goal.progressMarkers?.length || 0,
-      });
     }
 
     // 5. Validate output with guardrails (context includes conversationHistory)
@@ -283,10 +258,12 @@ export class WorkflowAIService {
     return {
       response: finalResponse,
       products,
+      intent,
+      thinking,
       metadata: {
         state: finalConversationState?.state || { products: [], useCases: { activeCases: [], completedCases: [] } },
       },
-      initialState, // State before processing (for incoming message audit trail)
+      initialState, // State before processing
     };
   }
 
@@ -387,57 +364,29 @@ export class WorkflowAIService {
         conversationState: conversationState || undefined,
         presentationMode,
         presentationInstructions,
-        goal, // SIMPLIFIED: Pass goal instead of useCase
-        // Note: No useCaseInstructions - agent decides behavior based on goal type
+        goal,
       });
 
       this.logger.log('Workflow completed successfully');
 
-      // Extract response text
-      const response = result.output_text || 'No response generated';
+      // Extract structured response
+      const output = result.output;
+      const response = output.response_text || 'No response generated';
+      const intent = output.user_intent;
+      const thinking = output.thinking;
 
-      // TODO: Extract products from workflow execution
-      // The workflow doesn't currently track products like the old system
-      // This will need to be implemented if product tracking is required
-      const products: Array<any> = [];
-
-      // Extract product mentions from MCP tool calls (real IDs) or text (fallback)
+      // Extract products from MCP tool calls (real IDs)
       let productMentions: ProductMention[] = [];
 
-      // Primary: Extract from MCP tool calls (has real product IDs)
       if (result.newItems && result.newItems.length > 0) {
-        productMentions = this.extractProductsFromToolCalls(result.newItems);
-
-        if (productMentions.length > 0) {
-          this.logger.log(
-            `Extracted ${productMentions.length} product(s) from MCP tool calls`,
-            {
-              productIds: productMentions.map((p) => ({
-                id: p.productId,
-                name: p.productName,
-              })),
-            },
-          );
-        } else {
-          this.logger.warn(
-            'No products found in tool calls, falling back to text extraction',
-          );
-        }
-      } else {
-        this.logger.warn(
-          'No newItems in workflow result, using text extraction',
-        );
+        productMentions = this.productExtractionService.extractProductsFromToolCalls(result.newItems);
       }
 
-      // Fallback: Extract from text if no tool calls found
-      // (e.g., when FAQ Agent or Greetings Agent responds)
-      if (productMentions.length === 0) {
-        productMentions = this.extractProductMentions(response);
-        if (productMentions.length > 0) {
-          this.logger.warn(
-            `Using text extraction fallback - extracted ${productMentions.length} product(s) without real IDs`,
-          );
-        }
+      // If no tool calls, check if LLM returned products in structured output
+      // (Note: These might lack IDs if not from tools, so we treat them carefully)
+      if (productMentions.length === 0 && output.products && output.products.length > 0) {
+        productMentions = this.productExtractionService.extractProductsFromStructuredOutput(output.products);
+        this.logger.log(`Using structured output products: ${productMentions.length}`);
       }
 
       // Update conversation state with new product mentions
@@ -456,7 +405,9 @@ export class WorkflowAIService {
 
       return {
         response,
-        products,
+        products: productMentions,
+        intent,
+        thinking,
         metadata: {
           state: updatedConversationState?.state || { products: [] },
         },
@@ -467,246 +418,11 @@ export class WorkflowAIService {
     }
   }
 
-  /**
-   * Extract product mentions from the workflow response
-   *
-   * Parses the markdown response to find product cards and extract product information.
-   * Product cards follow this format:
-   *   ![PRODUCT NAME](image_url)
-   *   **PRODUCT NAME**
-   *   Precio: $XX,XXX | ...
-   *
-   * TODO: This is a simple text-based extraction. Ideally, the workflow should
-   * return structured data about products shown, or we should track MCP tool calls.
-   * For Phase 1, this provides basic tracking to prevent ID hallucination.
-   *
-   * @param response - The workflow response text
-   * @returns Array of ProductMention objects
-   */
-  private extractProductMentions(response: string): ProductMention[] {
-    const productMentions: ProductMention[] = [];
 
-    try {
-      // Pattern to match product cards with bold product names
-      // Matches: **PRODUCT NAME** or **PRODUCT NAME (details)**
-      const productNamePattern = /\*\*([A-Z][A-Z\s]+(?:\([^)]+\))?)\*\*/g;
 
-      const matches = Array.from(response.matchAll(productNamePattern));
 
-      for (const match of matches) {
-        const productName = match[1].trim();
 
-        // Skip generic headings (not product names)
-        if (
-          productName.length < 5 ||
-          productName.toLowerCase().includes('importante')
-        ) {
-          continue;
-        }
 
-        // For now, we extract just the name without the ID
-        // The ID will need to come from MCP tool tracking in a future enhancement
-        productMentions.push({
-          productId: 0, // TODO: Extract from MCP tool results, not text
-          productName,
-          mentionedAt: new Date(),
-          context: 'recommendation',
-        });
-      }
-
-      // Deduplicate by product name (case-insensitive)
-      const uniqueMentions = productMentions.filter(
-        (mention, index, self) =>
-          index ===
-          self.findIndex(
-            (m) =>
-              m.productName.toLowerCase() === mention.productName.toLowerCase(),
-          ),
-      );
-
-      return uniqueMentions;
-    } catch (error) {
-      this.logger.error('Failed to extract product mentions', {
-        error: error.message,
-      });
-      return [];
-    }
-  }
-
-  /**
-   * Extract products from MCP tool calls (real product IDs)
-   *
-   * Parses newItems array from workflow execution to find MCP product tool calls
-   * and extracts actual product IDs from their responses.
-   *
-   * This solves the hallucination problem: instead of extracting product names from
-   * markdown text (which loses the IDs), we get the real IDs directly from MCP responses.
-   *
-   * @param newItems - Array of RunItem from workflow execution
-   * @returns Array of ProductMention objects with real product IDs
-   */
-  private extractProductsFromToolCalls(newItems: any[]): ProductMention[] {
-    const productMentions: ProductMention[] = [];
-    const now = new Date();
-
-    try {
-      // Filter for tool call items with mcp_call and output
-      const toolOutputs = newItems.filter(
-        (item) =>
-          item?.type === 'tool_call_item' &&
-          item?.rawItem?.name === 'mcp_call' &&
-          item?.rawItem?.output,
-      );
-
-      for (const item of toolOutputs) {
-        // Get actual MCP tool name from providerData (not 'mcp_call' wrapper)
-        const toolName = item.rawItem?.providerData?.name;
-
-        // Only process product-related MCP tools
-        if (!toolName || !toolName.includes('nuvemshop_product')) {
-          continue;
-        }
-
-        // Parse tool output (could be string or object)
-        let toolResult;
-        if (typeof item.rawItem.output === 'string') {
-          try {
-            toolResult = JSON.parse(item.rawItem.output);
-          } catch (parseError) {
-            this.logger.warn(`Failed to parse tool output for ${toolName}`, {
-              error: parseError.message,
-              outputPreview: item.rawItem.output?.substring(0, 200),
-            });
-            continue;
-          }
-        } else {
-          toolResult = item.rawItem.output;
-        }
-
-        // Extract products based on tool type
-        if (toolName === 'search_nuvemshop_products') {
-          // Search returns array or { products: [...] }
-          const products = Array.isArray(toolResult)
-            ? toolResult
-            : toolResult.products || [];
-
-          for (const product of products) {
-            if (product.id && product.name) {
-              productMentions.push({
-                productId: product.id,
-                productName: product.name,
-                mentionedAt: now,
-                context: 'search',
-              });
-            }
-          }
-        } else if (
-          toolName === 'get_nuvemshop_product' ||
-          toolName === 'get_nuvemshop_product_by_sku'
-        ) {
-          // Get returns single product object
-          if (toolResult.id && toolResult.name) {
-            productMentions.push({
-              productId: toolResult.id,
-              productName: toolResult.name,
-              mentionedAt: now,
-              context: 'question',
-            });
-          }
-        }
-      }
-
-      // Deduplicate by product ID
-      const uniqueMentions = productMentions.filter(
-        (mention, index, self) =>
-          index === self.findIndex((m) => m.productId === mention.productId),
-      );
-
-      return uniqueMentions;
-    } catch (error) {
-      this.logger.error('Failed to extract products from tool calls', {
-        error: error.message,
-      });
-      return [];
-    }
-  }
-
-  /**
-   * Get classifier intent using keyword matching
-   *
-   * This is called before the full workflow to detect the use case type.
-   * Uses simple keyword heuristics to infer intent without running the workflow.
-   *
-   * TODO: Refactor workflow to expose classifier result directly to avoid this heuristic.
-   */
-  private getClassifierIntent(
-    message: string,
-    context: MessageContext,
-    dbMessages?: any[],
-  ): string {
-    // Use keyword inference directly without running workflow
-    // This avoids duplicate workflow execution
-    return this.inferIntentFromMessage(message);
-  }
-
-  /**
-   * Infer intent from message using simple keyword matching
-   *
-   * This is a fallback when we can't get the classifier result directly.
-   * TODO: Refactor workflow to expose classifier result
-   */
-  private inferIntentFromMessage(message: string): string {
-    const messageLower = message.toLowerCase();
-
-    // ORDER_STATUS keywords
-    if (
-      messageLower.includes('pedido') ||
-      messageLower.includes('order') ||
-      messageLower.includes('seguimiento') ||
-      messageLower.includes('tracking') ||
-      messageLower.includes('envio') ||
-      messageLower.includes('entrega') ||
-      messageLower.includes('pago') ||
-      messageLower.includes('payment') ||
-      messageLower.includes('devolucion') ||
-      messageLower.includes('return')
-    ) {
-      return 'ORDER_STATUS';
-    }
-
-    // PRODUCT_INFO keywords
-    if (
-      messageLower.includes('producto') ||
-      messageLower.includes('product') ||
-      messageLower.includes('jean') ||
-      messageLower.includes('remera') ||
-      messageLower.includes('talle') ||
-      messageLower.includes('size') ||
-      messageLower.includes('stock') ||
-      messageLower.includes('precio') ||
-      messageLower.includes('price') ||
-      messageLower.includes('color')
-    ) {
-      return 'PRODUCT_INFO';
-    }
-
-    // STORE_INFO keywords
-    if (
-      messageLower.includes('horario') ||
-      messageLower.includes('hours') ||
-      messageLower.includes('contacto') ||
-      messageLower.includes('contact') ||
-      messageLower.includes('politica') ||
-      messageLower.includes('policy') ||
-      messageLower.includes('cambio') ||
-      messageLower.includes('exchange')
-    ) {
-      return 'STORE_INFO';
-    }
-
-    // Default to OTHERS
-    return 'OTHERS';
-  }
 
   /**
    * Update use case progress based on agent response
