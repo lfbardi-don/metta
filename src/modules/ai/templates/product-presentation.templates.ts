@@ -23,8 +23,9 @@ Show complete product cards with all details.
 Format each product as:
 ![{product.name}]({product.imageUrl})
 **{PRODUCT NAME IN CAPS}**
-Precio: {price with $ and thousands separator} | Disponible
+Precio: {price with $ and thousands separator}
 Descripción: {brief description}
+Talles disponibles: {comma-separated list}
 
 ---
 
@@ -34,6 +35,9 @@ Rules:
 - NEVER reveal exact stock quantities, only availability status
 - Show maximum 3 products
 - Use proper markdown formatting
+- For size queries: show the card directly WITHOUT a text preamble (sizes are already in the card)
+- Do NOT add chatty commentary about specific sizes being in stock
+- Keep it simple and let the card speak for itself
 `;
 
 /**
@@ -47,22 +51,20 @@ The user is asking about size availability for a product that was recently shown
 
 DO NOT show the full product card again. DO NOT show images.
 
-Response format:
+Response format (if requested size is available):
 \`\`\`
-El {productName} está disponible en talle {requestedSize}.
-Talles disponibles: {comma-separated list of all available sizes}
+Sí, tenemos estos talles para el {productName}: {comma-separated list of all available sizes}
 \`\`\`
 
-If size is NOT available:
+Response format (if requested size is NOT available):
 \`\`\`
-El {productName} no está disponible en talle {requestedSize}.
-Talles disponibles: {comma-separated list of available sizes}
+No tenemos el talle {requestedSize} para el {productName}. Los talles disponibles son: {comma-separated list}
 \`\`\`
 
 Rules:
-- Include product name for reference
-- Give direct yes/no answer for requested size
-- Always list all available sizes
+- Be natural and conversational
+- When the size IS available, just list all sizes (don't repeat the requested size separately)
+- When the size is NOT available, mention which size was requested, then list what you have
 - Do NOT show price, image, or full description
 - Do NOT repeat information already shown
 `;

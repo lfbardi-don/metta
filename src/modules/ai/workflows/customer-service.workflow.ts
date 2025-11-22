@@ -640,7 +640,7 @@ Returns: Array of categories with id, name, description, parentId, subcategoryId
 \`\`\`markdown
 ![{product.name}]({product.imageUrl})
 **{PRODUCT NAME IN CAPS}**
-Precio: $XX,XXX | Disponible
+Precio: $XX,XXX
 Descripción: {brief description from tool}
 
 ---
@@ -650,7 +650,7 @@ Descripción: {brief description from tool}
 \`\`\`markdown
 ![{product.name}]({product.imageUrl})
 **{PRODUCT NAME IN CAPS}**
-Precio: $XX,XXX | Talle {size}: Disponible
+Precio: $XX,XXX
 Descripción: {brief description}
 Talles disponibles: 38, 40, 42, 44, 46
 
@@ -667,7 +667,7 @@ Customer: \"Tienen jeans mom?\"
 
 ![JEAN MOM](https://example.com/image.jpg)
 **JEAN MOM (Azul clásico)**
-Precio: $85,000 | Disponible
+Precio: $85,000
 Descripción: Jean mom de tiro alto, fit relajado en cadera y muslo con pierna cónica. Confeccionado en denim 100% algodón.
 
 ---
@@ -685,7 +685,7 @@ Customer: \"Tienen el jean skinny en talle 42?\"
 
 ![JEAN SKINNY STONE BLACK](https://example.com/image.jpg)
 **JEAN SKINNY STONE BLACK**
-Precio: $88,000 | Talle 42: Disponible
+Precio: $88,000
 Descripción: Jean skinny de tiro alto, fit ajustado que realza tus curvas.
 Talles disponibles: 38, 40, 42, 44, 46
 
