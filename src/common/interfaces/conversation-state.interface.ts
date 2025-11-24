@@ -19,6 +19,30 @@ export interface ProductMention {
 }
 
 /**
+ * Represents an order mention in the conversation
+ * Used to track orders discussed and prevent LLM ID hallucination
+ */
+export interface OrderMention {
+  /** Order ID (Nuvemshop internal ID - large number) */
+  orderId: string;
+
+  /** Order number for display (e.g., "1234" - sequential number) */
+  orderNumber: string;
+
+  /** Customer email associated with this order */
+  customerEmail: string;
+
+  /** When this order was mentioned */
+  mentionedAt: Date;
+
+  /** Context of the mention */
+  context: 'inquiry' | 'tracking' | 'payment' | 'return';
+
+  /** Last known order status (for quick reference without re-fetching) */
+  lastStatus?: string;
+}
+
+/**
  * Goal Types - Simplified customer intent categories
  *
  * Reduced from 12 use case types to 7 focused goal types.
@@ -101,10 +125,13 @@ export interface ConversationState {
   /** Conversation ID (unique) */
   conversationId: string;
 
-  /** State object containing products, goals, and context (stored as JSONB) */
+  /** State object containing products, orders, goals, and context (stored as JSONB) */
   state: {
     /** Products mentioned (prevents hallucination) */
     products: ProductMention[];
+
+    /** Orders mentioned (prevents hallucination) */
+    orders: OrderMention[];
 
     /** Active customer goal (simplified from useCases) */
     activeGoal?: CustomerGoal | null;
@@ -165,4 +192,47 @@ export function findProductById(
   if (!state || !state.state?.products?.length) return null;
 
   return state.state.products.find((p) => p.productId === productId) || null;
+}
+
+/**
+ * Helper to find order by order number (display number)
+ */
+export function findOrderByNumber(
+  state: ConversationState | null,
+  orderNumber: string,
+): OrderMention | null {
+  if (!state || !state.state?.orders?.length) return null;
+
+  // Normalize order number (remove # if present)
+  const normalizedNumber = orderNumber.replace(/^#/, '');
+  return (
+    state.state.orders.find((o) => o.orderNumber === normalizedNumber) || null
+  );
+}
+
+/**
+ * Helper to find order by order ID (Nuvemshop internal ID)
+ */
+export function findOrderById(
+  state: ConversationState | null,
+  orderId: string,
+): OrderMention | null {
+  if (!state || !state.state?.orders?.length) return null;
+
+  return state.state.orders.find((o) => o.orderId === orderId) || null;
+}
+
+/**
+ * Helper to get the most recent order mentioned
+ */
+export function getMostRecentOrder(
+  state: ConversationState | null,
+): OrderMention | null {
+  if (!state || !state.state?.orders?.length) return null;
+
+  return state.state.orders.reduce((latest, current) => {
+    const latestTime = new Date(latest.mentionedAt).getTime();
+    const currentTime = new Date(current.mentionedAt).getTime();
+    return currentTime > latestTime ? current : latest;
+  });
 }

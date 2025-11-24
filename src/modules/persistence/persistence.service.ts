@@ -4,7 +4,9 @@ import {
   OutgoingMessage,
   ConversationState,
   ProductMention,
+  OrderMention,
   CustomerGoal,
+  CustomerAuthState,
 } from '../../common/interfaces';
 import { PrismaService } from './prisma.service';
 
@@ -219,20 +221,27 @@ export class PersistenceService {
       if (!state) return null;
 
       // Prisma automatically deserializes JSON - just need type assertion
-      const stateData = (state.state || { products: [] }) as unknown as {
+      const stateData = (state.state || { products: [], orders: [] }) as unknown as {
         products: ProductMention[];
+        orders: OrderMention[];
       };
+
+      // Ensure orders array exists (for backwards compatibility)
+      if (!stateData.orders) {
+        stateData.orders = [];
+      }
 
       this.logger.log('Retrieved conversation state', {
         conversationId,
         hasState: true,
-        productsCount: stateData.products.length,
+        productsCount: stateData.products?.length || 0,
+        ordersCount: stateData.orders?.length || 0,
       });
 
       return {
         ...state,
         state: stateData,
-      };
+      } as ConversationState;
     } catch (error) {
       this.logger.error('Failed to retrieve conversation state', {
         error: error.message,
@@ -377,13 +386,14 @@ export class PersistenceService {
   ): Promise<void> {
     try {
       const existingState = await this.getConversationState(conversationId);
-      const currentState = existingState?.state || { products: [] };
+      const currentState = existingState?.state || { products: [], orders: [] };
 
       // If setting a new goal and there's an active one, move it to recent
-      let recentGoals = currentState.recentGoals || [];
-      if (goal && currentState.activeGoal) {
+      let recentGoals = ('recentGoals' in currentState ? currentState.recentGoals : undefined) || [];
+      const activeGoal = 'activeGoal' in currentState ? currentState.activeGoal : null;
+      if (goal && activeGoal) {
         const completedGoal = {
-          ...currentState.activeGoal,
+          ...activeGoal,
           status: 'completed' as const,
           completedAt: new Date(),
         };
@@ -602,6 +612,233 @@ export class PersistenceService {
         error: error.message,
         conversationId,
       });
+    }
+  }
+
+  // ============================================================================
+  // Customer Authentication Methods (24-hour window)
+  // ============================================================================
+
+  /**
+   * Get customer auth state by email (24-hour window)
+   * Returns null if no auth exists or if expired
+   *
+   * @param email - Customer email address
+   * @returns CustomerAuthState or null if not authenticated/expired
+   */
+  async getCustomerAuth(email: string): Promise<CustomerAuthState | null> {
+    try {
+      const auth = await this.prisma.authSession.findUnique({
+        where: { email },
+      });
+
+      if (!auth) {
+        this.logger.log('No auth session found for email', { email });
+        return null;
+      }
+
+      if (!auth.verified) {
+        this.logger.log('Auth session exists but not verified', { email });
+        return null;
+      }
+
+      if (new Date(auth.expiresAt) < new Date()) {
+        this.logger.log('Auth session expired', {
+          email,
+          expiresAt: auth.expiresAt,
+        });
+        return null;
+      }
+
+      this.logger.log('Found valid auth session', {
+        email,
+        verifiedAt: auth.verifiedAt,
+        expiresAt: auth.expiresAt,
+      });
+
+      return {
+        email: auth.email,
+        verified: auth.verified,
+        verifiedAt: auth.verifiedAt!,
+        expiresAt: auth.expiresAt,
+        verifiedInConversationId: auth.lastConversationId || '',
+      };
+    } catch (error) {
+      this.logger.error('Failed to get customer auth', {
+        error: error.message,
+        email,
+      });
+      // Return null on error - allows conversation to continue without auth
+      return null;
+    }
+  }
+
+  /**
+   * Set customer auth state (24-hour window)
+   * Called when verify_dni succeeds in the MCP server
+   *
+   * @param email - Customer email address
+   * @param conversationId - Conversation where auth was established
+   */
+  async setCustomerAuth(
+    email: string,
+    conversationId: string,
+  ): Promise<void> {
+    try {
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours
+
+      await this.prisma.authSession.upsert({
+        where: { email },
+        update: {
+          verified: true,
+          verifiedAt: now,
+          expiresAt,
+          lastConversationId: conversationId,
+        },
+        create: {
+          email,
+          verified: true,
+          verifiedAt: now,
+          expiresAt,
+          lastConversationId: conversationId,
+        },
+      });
+
+      this.logger.log('Set customer auth', {
+        email,
+        conversationId,
+        expiresAt,
+      });
+    } catch (error) {
+      this.logger.error('Failed to set customer auth', {
+        error: error.message,
+        email,
+        conversationId,
+      });
+      // Don't throw - auth save failure shouldn't block message processing
+    }
+  }
+
+  /**
+   * Invalidate customer auth (e.g., on logout or security concern)
+   *
+   * @param email - Customer email address
+   */
+  async invalidateCustomerAuth(email: string): Promise<void> {
+    try {
+      await this.prisma.authSession.updateMany({
+        where: { email },
+        data: {
+          verified: false,
+          expiresAt: new Date(), // Expire immediately
+        },
+      });
+
+      this.logger.log('Invalidated customer auth', { email });
+    } catch (error) {
+      this.logger.error('Failed to invalidate customer auth', {
+        error: error.message,
+        email,
+      });
+    }
+  }
+
+  // ============================================================================
+  // Order Mention Methods
+  // ============================================================================
+
+  /**
+   * Update conversation state with order mentions
+   * Merges new orders with existing ones (deduplicates by orderId)
+   *
+   * @param conversationId - The conversation ID
+   * @param newOrders - Array of new order mentions to add
+   */
+  async updateOrderMentions(
+    conversationId: string,
+    newOrders: OrderMention[],
+  ): Promise<void> {
+    try {
+      // Get existing state
+      const existingState = await this.prisma.conversationState.findUnique({
+        where: { conversationId },
+      });
+
+      // Merge orders (deduplicate by orderId)
+      let mergedOrders: OrderMention[] = [];
+
+      if (existingState?.state) {
+        const stateData = existingState.state as any;
+        const existingOrders: OrderMention[] = stateData.orders || [];
+        const existingIds = new Set(existingOrders.map((o) => o.orderId));
+
+        // Keep existing orders and add only new ones
+        mergedOrders = [
+          ...existingOrders,
+          ...newOrders.filter((o) => !existingIds.has(o.orderId)),
+        ];
+      } else {
+        mergedOrders = newOrders;
+      }
+
+      // Build new state object preserving existing fields
+      const currentState = (existingState?.state as any) || {};
+      const newState = {
+        ...currentState,
+        products: currentState.products || [],
+        orders: mergedOrders,
+      };
+
+      // Upsert state
+      await this.prisma.conversationState.upsert({
+        where: { conversationId },
+        update: {
+          state: newState as any,
+        },
+        create: {
+          conversationId,
+          state: newState as any,
+        },
+      });
+
+      this.logger.log('Updated order mentions', {
+        conversationId,
+        newOrdersCount: newOrders.length,
+        totalOrdersCount: mergedOrders.length,
+        newOrderIds: newOrders.map((o) => o.orderId),
+      });
+    } catch (error) {
+      this.logger.error('Failed to update order mentions', {
+        error: error.message,
+        conversationId,
+        newOrdersCount: newOrders.length,
+      });
+      // Don't throw - state update failure shouldn't block message processing
+    }
+  }
+
+  /**
+   * Get orders mentioned in a conversation
+   *
+   * @param conversationId - The conversation ID
+   * @returns Array of order mentions or empty array
+   */
+  async getOrderMentions(conversationId: string): Promise<OrderMention[]> {
+    try {
+      const state = await this.getConversationState(conversationId);
+
+      if (!state || !state.state?.orders) {
+        return [];
+      }
+
+      return state.state.orders;
+    } catch (error) {
+      this.logger.error('Failed to get order mentions', {
+        error: error.message,
+        conversationId,
+      });
+      return [];
     }
   }
 }
