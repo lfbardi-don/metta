@@ -5,3 +5,4 @@ export * from './guardrail.interface';
 export * from './chatwoot-webhook.interface';
 export * from './conversation-state.interface';
 export * from './use-case.interface';
+export * from './customer-auth.interface';

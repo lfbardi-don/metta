@@ -7,8 +7,10 @@ import {
   MessageContext,
   ConversationState,
   ProductMention,
+  OrderMention,
   CustomerGoal,
   GoalType,
+  CustomerAuthState,
 } from '../../common/interfaces';
 import {
   UseCase,
@@ -21,6 +23,7 @@ import { PersistenceService } from '../persistence/persistence.service';
 import { PrismaService } from '../persistence/prisma.service';
 import { resolvePIIPlaceholders } from '../../common/helpers/resolve-pii.helper';
 import { ProductPresentationService } from './product-presentation.service';
+import { OrderPresentationService } from './order-presentation.service';
 import { ProductExtractionService } from './services/product-extraction.service';
 import { UseCaseDetectionService } from './services/use-case-detection.service';
 import { USE_CASE_WORKFLOWS } from './config/use-case-workflows.config';
@@ -61,10 +64,11 @@ export class WorkflowAIService {
     private readonly guardrailsService: GuardrailsService,
     private readonly persistenceService: PersistenceService,
     private readonly productPresentationService: ProductPresentationService,
+    private readonly orderPresentationService: OrderPresentationService,
     private readonly productExtractionService: ProductExtractionService,
     private readonly useCaseDetectionService: UseCaseDetectionService,
     private readonly prisma: PrismaService,
-  ) { }
+  ) {}
 
   /**
    * Process an incoming message through the workflow-based AI system
@@ -158,9 +162,31 @@ export class WorkflowAIService {
       );
     }
 
+    if (conversationState && conversationState.state.orders?.length > 0) {
+      this.logger.log(
+        `Loaded conversation state with ${conversationState.state.orders.length} order(s)`,
+      );
+    }
+
+    // 3.5. Load customer auth state (24-hour window)
+    // Try to get email from PII metadata or previous orders
+    let authState: CustomerAuthState | null = null;
+    const customerEmail = this.extractEmailFromContext(context, conversationState);
+
+    if (customerEmail) {
+      authState = await this.persistenceService.getCustomerAuth(customerEmail);
+      if (authState) {
+        this.logger.log('Customer already authenticated', {
+          email: customerEmail,
+          expiresAt: authState.expiresAt,
+        });
+      }
+    }
+
     // Capture initial state (BEFORE processing) for incoming message
     const initialState: ConversationState['state'] = {
       products: conversationState?.state?.products || [],
+      orders: conversationState?.state?.orders || [],
       activeGoal: conversationState?.state?.activeGoal || null,
       recentGoals: conversationState?.state?.recentGoals || [],
       lastTopic: conversationState?.state?.lastTopic,
@@ -179,6 +205,7 @@ export class WorkflowAIService {
       dbMessages,
       conversationState,
       conversationState?.state?.activeGoal,
+      authState,
     );
 
     const { response, products, intent, thinking } = workflowResult;
@@ -280,6 +307,7 @@ export class WorkflowAIService {
     dbMessages?: any[],
     conversationState?: ConversationState | null,
     goal?: CustomerGoal | null,
+    authState?: CustomerAuthState | null,
   ): Promise<AIServiceResponse> {
     try {
       if (!context?.conversationId) {
@@ -357,13 +385,44 @@ export class WorkflowAIService {
         isFollowUp: queryContext.isFollowUp,
       });
 
-      // Run workflow with history, state, presentation instructions, and goal context
+      // 6. Detect order presentation context
+      const orderQueryContext = this.orderPresentationService.detectQueryContext(
+        message,
+        conversationState || null,
+      );
+
+      const orderPresentationMode =
+        this.orderPresentationService.determinePresentationMode(
+          orderQueryContext,
+          conversationState || null,
+        );
+
+      const orderPresentationInstructions =
+        this.orderPresentationService.generatePresentationInstructions(
+          orderPresentationMode,
+          orderQueryContext.mentionedOrders,
+        );
+
+      this.logger.log('Order presentation context determined', {
+        queryType: orderQueryContext.type,
+        orderPresentationMode,
+        mentionedOrders: orderQueryContext.mentionedOrders.length,
+        isFollowUp: orderQueryContext.isFollowUp,
+        hasAuthState: !!authState,
+      });
+
+      // Run workflow with history, state, presentation instructions, auth state, and goal context
       const result = await runWorkflow({
         input_as_text: message,
         conversationHistory,
         conversationState: conversationState || undefined,
+        // Product presentation
         presentationMode,
         presentationInstructions,
+        // Order presentation (NEW)
+        authState: authState || null,
+        orderPresentationMode,
+        orderPresentationInstructions,
         goal,
       });
 
@@ -397,6 +456,38 @@ export class WorkflowAIService {
         );
       }
 
+      // Extract customer email for order tracking
+      const customerEmail = this.extractEmailFromContext(context, conversationState || null);
+
+      // Extract order mentions from tool calls and save to state
+      if (result.newItems && result.newItems.length > 0) {
+        const orderMentions = this.extractOrderMentionsFromToolCalls(
+          result.newItems,
+          customerEmail,
+        );
+
+        if (orderMentions.length > 0) {
+          await this.persistenceService.updateOrderMentions(
+            context.conversationId,
+            orderMentions,
+          );
+          this.logger.log(`Saved ${orderMentions.length} order mention(s) to conversation state`);
+        }
+
+        // Detect and persist authentication success (24-hour DB session)
+        const authResult = this.detectAuthSuccess(result.newItems, customerEmail);
+        if (authResult.success && authResult.email) {
+          await this.persistenceService.setCustomerAuth(
+            authResult.email,
+            context.conversationId,
+          );
+          this.logger.log('Customer authentication saved to DB (24-hour session)', {
+            email: authResult.email,
+            conversationId: context.conversationId,
+          });
+        }
+      }
+
       // Retrieve conversation state to include in message metadata
       const updatedConversationState =
         await this.persistenceService.getConversationState(
@@ -409,7 +500,7 @@ export class WorkflowAIService {
         intent,
         thinking,
         metadata: {
-          state: updatedConversationState?.state || { products: [] },
+          state: updatedConversationState?.state || { products: [], orders: [] },
         },
       };
     } catch (error) {
@@ -547,5 +638,169 @@ export class WorkflowAIService {
     );
     // Method kept as stub for backward compatibility
     // New code should use: persistenceService.setActiveGoal()
+  }
+
+  /**
+   * Extract customer email from context (PII metadata or previous orders)
+   */
+  private extractEmailFromContext(
+    context: MessageContext,
+    conversationState: ConversationState | null,
+  ): string | null {
+    // 1. Try to get email from PII metadata (current message)
+    if (context.piiMetadata) {
+      const emailKeys = Object.keys(context.piiMetadata).filter((k) =>
+        k.startsWith('EMAIL_'),
+      );
+      if (emailKeys.length > 0) {
+        const email = context.piiMetadata[emailKeys[0]];
+        this.logger.debug('Email found in PII metadata', { email });
+        return email;
+      }
+    }
+
+    // 2. Try to get email from previous orders in conversation state
+    if (conversationState?.state?.orders?.length) {
+      const mostRecentOrder = conversationState.state.orders[0];
+      if (mostRecentOrder.customerEmail) {
+        this.logger.debug('Email found in conversation state orders', {
+          email: mostRecentOrder.customerEmail,
+        });
+        return mostRecentOrder.customerEmail;
+      }
+    }
+
+    // 3. Try to get email from contact metadata
+    if (context.metadata?.email) {
+      this.logger.debug('Email found in contact metadata', {
+        email: context.metadata.email,
+      });
+      return context.metadata.email;
+    }
+
+    return null;
+  }
+
+  /**
+   * Extract order mentions from workflow tool call results
+   */
+  extractOrderMentionsFromToolCalls(
+    newItems: any[],
+    customerEmail: string | null,
+  ): OrderMention[] {
+    const orderMentions: OrderMention[] = [];
+
+    if (!newItems || newItems.length === 0) {
+      return orderMentions;
+    }
+
+    for (const item of newItems) {
+      // Look for tool call results with order data
+      if (item.type === 'tool_call_output' || item.type === 'function_call_output') {
+        try {
+          const output = typeof item.output === 'string'
+            ? JSON.parse(item.output)
+            : item.output;
+
+          // Handle single order result
+          if (output?.order?.id || output?.id) {
+            const order = output.order || output;
+            const mention: OrderMention = {
+              orderId: String(order.id),
+              orderNumber: String(order.number || order.id),
+              customerEmail: customerEmail || order.customer?.email || '',
+              mentionedAt: new Date(),
+              context: this.detectOrderContext(item.name || ''),
+              lastStatus: order.status || order.state,
+            };
+            orderMentions.push(mention);
+          }
+
+          // Handle multiple orders result
+          if (Array.isArray(output?.orders)) {
+            for (const order of output.orders) {
+              const mention: OrderMention = {
+                orderId: String(order.id),
+                orderNumber: String(order.number || order.id),
+                customerEmail: customerEmail || order.customer?.email || '',
+                mentionedAt: new Date(),
+                context: 'inquiry',
+                lastStatus: order.status || order.state,
+              };
+              orderMentions.push(mention);
+            }
+          }
+        } catch (e) {
+          // Not JSON or invalid structure, skip
+          this.logger.debug('Could not parse tool output for order extraction', { error: e.message });
+        }
+      }
+    }
+
+    this.logger.log(`Extracted ${orderMentions.length} order mention(s) from tool calls`);
+    return orderMentions;
+  }
+
+  /**
+   * Detect order context from tool name
+   */
+  private detectOrderContext(toolName: string): OrderMention['context'] {
+    const nameLower = toolName.toLowerCase();
+    if (nameLower.includes('tracking') || nameLower.includes('shipment')) {
+      return 'tracking';
+    }
+    if (nameLower.includes('payment') || nameLower.includes('refund')) {
+      return 'payment';
+    }
+    if (nameLower.includes('return') || nameLower.includes('cancel')) {
+      return 'return';
+    }
+    return 'inquiry';
+  }
+
+  /**
+   * Detect authentication success from workflow tool call results
+   */
+  detectAuthSuccess(
+    newItems: any[],
+    customerEmail: string | null,
+  ): { success: boolean; email: string | null } {
+    if (!newItems || newItems.length === 0) {
+      return { success: false, email: null };
+    }
+
+    for (const item of newItems) {
+      if (item.type === 'tool_call_output' || item.type === 'function_call_output') {
+        const toolName = (item.name || '').toLowerCase();
+
+        // Check for verify_dni or similar auth tools
+        if (toolName.includes('verify') || toolName.includes('auth')) {
+          try {
+            const output = typeof item.output === 'string'
+              ? JSON.parse(item.output)
+              : item.output;
+
+            // Check for success indicators
+            if (
+              output?.success === true ||
+              output?.verified === true ||
+              output?.authenticated === true
+            ) {
+              // Try to extract email from the auth response
+              const authEmail = output?.email || output?.customer?.email || customerEmail;
+              this.logger.log('Authentication success detected', {
+                toolName,
+                email: authEmail,
+              });
+              return { success: true, email: authEmail };
+            }
+          } catch (e) {
+            // Not JSON or invalid structure, skip
+          }
+        }
+      }
+    }
+
+    return { success: false, email: null };
   }
 }

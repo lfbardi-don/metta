@@ -33,25 +33,27 @@ model Conversation {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   messages          Message[]
-  authSession       AuthSession?
   conversationState ConversationState?
+
+  // Note: AuthSession relation removed - auth is now per-customer (by email), not per-conversation
 
   @@index([createdAt])
 }
 
 model AuthSession {
-  id             String   @id @default(uuid())
-  conversationId String   @unique
-  email          String // Hashed email for privacy
-  verified       Boolean  @default(false)
-  expiresAt      DateTime // Session expiration (30 minutes after verification)
-  metadata       Json? // For storing additional data (e.g., failed attempt counters)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                 String    @id @default(uuid())
+  email              String    @unique // Customer email as primary key (24h auth window)
+  verified           Boolean   @default(false)
+  verifiedAt         DateTime? // When verification happened
+  expiresAt          DateTime // Session expiration (24 hours after verification)
+  lastConversationId String? // Track where auth was last used
+  metadata           Json? // For storing additional data (e.g., failed attempt counters)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  // Note: Removed conversation relation - auth is now per-customer, not per-conversation
 
-  @@index([conversationId])
+  @@index([email])
   @@index([expiresAt])
 }
 
