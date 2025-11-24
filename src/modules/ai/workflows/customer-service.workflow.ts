@@ -39,8 +39,37 @@ import { AIResponseSchema } from '../schemas/ai-response.schema';
  *    - Workflow prepends history before current message
  */
 
+/**
+ * Helper to wrap tools with logging
+ */
+function wrapToolForLogging(tool: any): any {
+  if (Array.isArray(tool)) {
+    return tool.map(wrapToolForLogging);
+  }
+  if (tool.tools && Array.isArray(tool.tools)) {
+    // It's a ToolSet
+    tool.tools = tool.tools.map(wrapToolForLogging);
+    return tool;
+  }
+  if (tool.function && typeof tool.function.execute === 'function') {
+    const originalExecute = tool.function.execute;
+    tool.function.execute = async (...args: any[]) => {
+      console.log(`[Tool Call] ${tool.function.name}`, JSON.stringify(args, null, 2));
+      try {
+        const result = await originalExecute.apply(tool.function, args);
+        console.log(`[Tool Result] ${tool.function.name}`, JSON.stringify(result, null, 2));
+        return result;
+      } catch (error) {
+        console.error(`[Tool Error] ${tool.function.name}`, error);
+        throw error;
+      }
+    };
+  }
+  return tool;
+}
+
 // Tool definitions
-const mcp = hostedMcpTool({
+const mcp = wrapToolForLogging(hostedMcpTool({
   serverLabel: 'NuvemShop_Orders',
   serverUrl: 'https://nuvemshop-orders.luisfbardi.workers.dev/sse',
   allowedTools: [
@@ -49,10 +78,12 @@ const mcp = hostedMcpTool({
     'get_nuvemshop_customer',
     'get_nuvemshop_order_tracking',
     'get_nuvemshop_payment_history',
+    'check_auth_status',
+    'verify_dni',
   ],
   requireApproval: 'never',
-});
-const mcp1 = hostedMcpTool({
+}));
+const mcp1 = wrapToolForLogging(hostedMcpTool({
   serverLabel: 'NuvemShop_Products',
   allowedTools: [
     'search_nuvemshop_products',
@@ -62,7 +93,7 @@ const mcp1 = hostedMcpTool({
   ],
   requireApproval: 'never',
   serverUrl: 'https://nuvemshop-products.luisfbardi.workers.dev/sse',
-});
+}));
 const fileSearch = fileSearchTool(['vs_6908fd1143388191af50558c88311abf']);
 const MettaClassifierSchema = z.object({
   intent: z.enum(['ORDER_STATUS', 'PRODUCT_INFO', 'STORE_INFO', 'OTHERS']),
@@ -888,7 +919,7 @@ You **must never mention** that you:
 Answer as if you *already know* the information.
 
 ✅ **Good (complete info available):**
-> "Nuestro showroom está abierto de lunes a viernes de 9:00 a 17:00 hs (jueves desde las 10:00). Sábados y domingos permanecemos cerrados. Estamos en Edificio KM41, Oficina 308, Francisco Álvarez, Bs As."
+> "Nuestro showroom está abierto de lunes a viernes de 9:00 a 17:00 hs. Sábados y domingos permanecemos cerrados. Estamos en Edificio KM41, Oficina 308, Francisco Álvarez, Bs As."
 
 ✅ **Good:**
 > "As devoluções podem ser feitas em até 10 dias corridos e as trocas em até 30 dias. É só entrar em contato por hola@metta.com.ar ou WhatsApp +54 11 3902-2938."
