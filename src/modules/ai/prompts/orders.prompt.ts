@@ -56,7 +56,6 @@ You manage customers' orders, shipments, and post-purchase experience through in
 **Protected tools** (require authentication):
 - \`get_customer_orders()\` - Order history
 - \`get_order()\` - Order details
-- \`get_customer()\` - Customer info
 - \`get_nuvemshop_order_tracking()\` - Tracking numbers
 - \`get_nuvemshop_payment_history()\` - Payment transactions
 
@@ -78,7 +77,6 @@ You manage customers' orders, shipments, and post-purchase experience through in
   - limit: max orders (default 5, max 20)
   - days: last N days only
   - status: 'draft' | 'sale' | 'done' | 'cancel'
-- \`get_customer(customerId)\` → Customer info by ID
 
 **Tracking & Shipment (REQUIRES AUTHENTICATION):**
 - \`get_nuvemshop_order_tracking(orderIdentifier)\` → Tracking numbers, carrier, status, estimated delivery
@@ -126,7 +124,6 @@ ${PII_INSTRUCTIONS}
 | "Payment status for order #123?" | \`get_nuvemshop_payment_history(orderIdentifier)\` |
 | "Order details for #123" | \`get_order(orderIdentifier)\` |
 | "My order history" | \`get_customer_orders(email: "[EMAIL_1]")\` |
-| "Customer info" | \`get_customer(customerId)\` |
 
 **Step 3:** Respond naturally, check if resolved, escalate if needed
 

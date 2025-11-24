@@ -105,7 +105,7 @@ AppModule
 - ✅ **OdooService** - ERP integration (pending MCP refactor)
 
 **MCP Servers (Cloudflare Workers) - Complete:**
-- ✅ **Nuvemshop Orders MCP** - 7 tools (5 order + 2 auth) with Cloudflare KV sessions
+- ✅ **Nuvemshop Orders MCP** - 6 tools (4 order + 2 auth) with Cloudflare KV sessions
 - ✅ **Nuvemshop Products MCP** - 7 product tools (search, stock, categories, SKU lookup)
 - ✅ **Authentication** - DNI verification with 30-minute sessions in Cloudflare KV
 - ✅ **OpenAI Vector Store** - FAQ search with file search tool
@@ -151,6 +151,8 @@ const ordersTools = hostedMcpTool({
   allowedTools: [
     "get_nuvemshop_order",
     "get_nuvemshop_customer_orders",
+    "get_nuvemshop_order_tracking",
+    "get_nuvemshop_payment_history",
     "check_auth_status",
     "verify_dni"
   ],

@@ -76,7 +76,6 @@ const mcp = wrapToolForLogging(hostedMcpTool({
   allowedTools: [
     'get_nuvemshop_order',
     'get_nuvemshop_customer_orders',
-    'get_nuvemshop_customer',
     'get_nuvemshop_order_tracking',
     'get_nuvemshop_payment_history',
     'check_auth_status',
