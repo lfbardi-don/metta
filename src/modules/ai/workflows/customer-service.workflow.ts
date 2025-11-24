@@ -203,8 +203,8 @@ Returns: { authenticated: true/false, sessionExpiry: timestamp }
 
 #### Step 2a: If NOT Authenticated
 Ask customer to confirm their identity:
-- \"Para ver tu información de pedidos, necesito que confirmes los últimos 3 dígitos de tu DNI.\"
-- Wait for customer to provide 3 digits
+- \"Para ver tu información de pedidos, necesito que me confirmes tu email y los últimos 3 dígitos de tu DNI.\"
+- Wait for customer to provide email and 3 digits
 - Extract email from conversation (may be placeholder like \`[EMAIL_1]\`)
 - Call: \`verify_dni(email: \"[EMAIL_1]\", dniLastDigits: \"123\")\`
 
