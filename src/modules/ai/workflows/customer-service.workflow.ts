@@ -187,13 +187,14 @@ Orders that have been discussed in this conversation:
 
 ${ordersList}
 
-**IMPORTANT RULES FOR USING ORDER IDS:**
-1. When a customer references an order (e.g., "my order", "that order", "ese pedido"), ALWAYS check the list above first
-2. Use the Order ID from the list above - NEVER invent or guess order IDs
-3. Only use get_customer_orders() if the order is NOT in the list above
-4. Order IDs are large numbers (e.g., 1837589990) - order numbers are smaller (e.g., 1234)
+**IMPORTANT RULES FOR ORDER LOOKUPS:**
+1. When a customer mentions an order number (e.g., "#1234", "pedido 1234"), use THAT EXACT NUMBER in tool calls
+2. Pass the ORDER NUMBER to tools (e.g., "1234"), NOT large internal IDs
+3. If customer says "my order" or "ese pedido" without a number, check the list above for context
+4. NEVER invent or fabricate order numbers - use exactly what the customer provides
 
-**Why this matters:** Order IDs must be exact. Using incorrect IDs will cause errors and frustrate customers.
+**CRITICAL:** Tools accept order NUMBERS like "1234" - NOT internal IDs like "1836000108".
+If you don't know the order number, ASK the customer. Do not guess.
 
 `;
   }
@@ -304,12 +305,16 @@ Returns: { success: boolean, sessionExpiry: string }
 ### Order Information Tools
 
 #### get_nuvemshop_order(orderIdentifier)
-Get complete order details by ID or number
+Get complete order details by order NUMBER (NOT internal ID)
 \`\`\`typescript
 Parameters:
-  - orderIdentifier: string (e.g., "123" or "SO12345")
+  - orderIdentifier: string - USE THE ORDER NUMBER (e.g., "1234" or "#1234")
+  - NEVER use large internal IDs (like 1836000108) - use display numbers only
 Returns: Full order object with status, items, customer info, total
 \`\`\`
+
+**CRITICAL:** When customer says "pedido #1234" or "order 1234", pass "1234" to the tool.
+DO NOT invent or fabricate order IDs. Use exactly what the customer provides.
 
 #### get_customer_orders(email, limit?, days?, status?)
 Get customer's order history with filters
@@ -334,21 +339,24 @@ When customer asks about an order, call multiple tools simultaneously:
 
 **Complete Order View:**
 \`\`\`typescript
-// Customer: "What's the status of my order #1234?"
+// Customer: "¿Cómo está mi pedido #1234?"
+// USE THE EXACT NUMBER THE CUSTOMER GAVE YOU
 Parallel calls:
-  - get_nuvemshop_order("1234")
+  - get_nuvemshop_order("1234")  // ✅ Correct: use "1234"
   - get_nuvemshop_order_tracking("1234")
+
+// ❌ WRONG: get_nuvemshop_order("1836000108") - NEVER invent IDs
 \`\`\`
 
 **Payment Troubleshooting:**
 \`\`\`typescript
-// Customer: "Why was my payment declined for order #1234?"
+// Customer: "¿Por qué me rechazaron el pago del pedido 5678?"
 Parallel calls:
-  - get_nuvemshop_order("1234")
-  - get_nuvemshop_payment_history("1234")
+  - get_nuvemshop_order("5678")
+  - get_nuvemshop_payment_history("5678")
 \`\`\`
 
-**Trust tool data as source of truth** for all statuses, numbers, dates.
+**CRITICAL:** Trust tool data as source of truth. Use customer-provided order numbers EXACTLY.
 
 ## Error Handling
 
