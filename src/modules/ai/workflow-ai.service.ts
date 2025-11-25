@@ -416,10 +416,11 @@ export class WorkflowAIService {
         input_as_text: message,
         conversationHistory,
         conversationState: conversationState || undefined,
+        conversationId: context?.conversationId, // Required for get_last_order tool
         // Product presentation
         presentationMode,
         presentationInstructions,
-        // Order presentation (NEW)
+        // Order presentation
         authState: authState || null,
         orderPresentationMode,
         orderPresentationInstructions,
@@ -683,6 +684,7 @@ export class WorkflowAIService {
 
   /**
    * Extract order mentions from workflow tool call results
+   * Updated to handle the new get_last_order response format (single order with fulfillments)
    */
   extractOrderMentionsFromToolCalls(
     newItems: any[],
@@ -702,33 +704,34 @@ export class WorkflowAIService {
             ? JSON.parse(item.output)
             : item.output;
 
-          // Handle single order result
-          if (output?.order?.id || output?.id) {
+          const toolName = (item.name || '').toLowerCase();
+
+          // Handle get_last_order response (new format with fulfillments)
+          if (toolName.includes('get_last_order') || toolName.includes('last_order')) {
+            if (output?.id || output?.orderNumber) {
+              const mention: OrderMention = {
+                orderId: String(output.id),
+                orderNumber: String(output.orderNumber || output.id),
+                customerEmail: customerEmail || output.customer?.email || '',
+                mentionedAt: new Date(),
+                context: this.detectOrderContextFromResponse(output),
+                lastStatus: output.status || output.shippingStatus,
+              };
+              orderMentions.push(mention);
+            }
+          }
+          // Handle legacy single order result (fallback for other tools)
+          else if (output?.order?.id || output?.id) {
             const order = output.order || output;
             const mention: OrderMention = {
               orderId: String(order.id),
-              orderNumber: String(order.number || order.id),
+              orderNumber: String(order.number || order.orderNumber || order.id),
               customerEmail: customerEmail || order.customer?.email || '',
               mentionedAt: new Date(),
               context: this.detectOrderContext(item.name || ''),
               lastStatus: order.status || order.state,
             };
             orderMentions.push(mention);
-          }
-
-          // Handle multiple orders result
-          if (Array.isArray(output?.orders)) {
-            for (const order of output.orders) {
-              const mention: OrderMention = {
-                orderId: String(order.id),
-                orderNumber: String(order.number || order.id),
-                customerEmail: customerEmail || order.customer?.email || '',
-                mentionedAt: new Date(),
-                context: 'inquiry',
-                lastStatus: order.status || order.state,
-              };
-              orderMentions.push(mention);
-            }
           }
         } catch (e) {
           // Not JSON or invalid structure, skip
@@ -739,6 +742,21 @@ export class WorkflowAIService {
 
     this.logger.log(`Extracted ${orderMentions.length} order mention(s) from tool calls`);
     return orderMentions;
+  }
+
+  /**
+   * Detect order context from the order response data (for get_last_order)
+   */
+  private detectOrderContextFromResponse(order: any): OrderMention['context'] {
+    // If the order has fulfillments with tracking, it's likely a tracking inquiry
+    if (order.fulfillments?.length > 0 && order.fulfillments.some((f: any) => f.trackingCode)) {
+      return 'tracking';
+    }
+    // If payment status is pending or failed, could be payment inquiry
+    if (order.paymentStatus === 'pending' || order.paymentStatus === 'failed') {
+      return 'payment';
+    }
+    return 'inquiry';
   }
 
   /**

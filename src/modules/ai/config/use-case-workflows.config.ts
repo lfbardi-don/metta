@@ -23,7 +23,6 @@ export const USE_CASE_WORKFLOWS: Record<UseCaseType, UseCaseWorkflow> = {
     type: UseCaseType.CHECK_ORDER_STATUS,
     requiredSteps: [
       'authenticate',
-      'identify_order',
       'fetch_status',
       'present_status',
     ],
@@ -32,10 +31,10 @@ export const USE_CASE_WORKFLOWS: Record<UseCaseType, UseCaseWorkflow> = {
     instructions: `
 Steps to complete this use case:
 1. Authenticate customer (verify DNI)
-2. Identify which order (from conversation or ask)
-3. Fetch order status using get_nuvemshop_order()
-4. Present status clearly
-5. Ask: "¿Hay algo más que pueda hacer por vos con este pedido?"
+2. Fetch last order using get_last_order(conversationId)
+3. Present status clearly (tracking info is in fulfillments array)
+4. Ask: "¿Hay algo más que pueda hacer por vos con este pedido?"
+Note: Only the most recent order is available. For order history, direct to metta.com.ar
     `.trim(),
   },
 
@@ -43,7 +42,6 @@ Steps to complete this use case:
     type: UseCaseType.TRACK_SHIPMENT,
     requiredSteps: [
       'authenticate',
-      'identify_order',
       'fetch_tracking',
       'present_tracking',
     ],
@@ -52,8 +50,8 @@ Steps to complete this use case:
     instructions: `
 Steps to complete this use case:
 1. Authenticate customer
-2. Identify which order
-3. Fetch tracking using get_nuvemshop_order_tracking()
+2. Fetch last order using get_last_order(conversationId)
+3. Extract tracking from fulfillments array (trackingCode, carrier, trackingUrl)
 4. Present tracking number and status
 5. Ask: "¿Necesitás ayuda con algo más sobre este envío?"
     `.trim(),
@@ -63,7 +61,7 @@ Steps to complete this use case:
     type: UseCaseType.REQUEST_RETURN,
     requiredSteps: [
       'authenticate',
-      'identify_order',
+      'fetch_order',
       'verify_eligibility',
       'provide_instructions',
     ],
@@ -72,8 +70,8 @@ Steps to complete this use case:
     instructions: `
 Steps to complete this use case:
 1. Authenticate customer
-2. Identify which order
-3. Verify return eligibility (within 30 days)
+2. Fetch last order using get_last_order(conversationId)
+3. Verify return eligibility (within 30 days, check order date)
 4. Provide return instructions
 5. Ask: "¿Necesitás ayuda con algo más sobre la devolución?"
     `.trim(),
@@ -83,7 +81,6 @@ Steps to complete this use case:
     type: UseCaseType.VERIFY_PAYMENT,
     requiredSteps: [
       'authenticate',
-      'identify_order',
       'fetch_payment',
       'present_payment',
     ],
@@ -92,10 +89,11 @@ Steps to complete this use case:
     instructions: `
 Steps to complete this use case:
 1. Authenticate customer
-2. Identify which order
-3. Fetch payment details using get_nuvemshop_order()
+2. Fetch last order using get_last_order(conversationId)
+3. Extract payment info (paymentStatus, paymentMethod, gateway)
 4. Present payment status and method
 5. Ask: "¿Hay algo más que pueda ayudarte con el pago?"
+Note: Detailed payment history is not available. For transaction details, direct to website.
     `.trim(),
   },
 

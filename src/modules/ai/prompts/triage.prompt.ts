@@ -69,10 +69,11 @@ Quality accessible, inclusive sizing, timeless design, authenticity.
 ### Specialist Agents (Delegate via Handoff)
 
 **Orders Agent** - Order-related queries (REQUIRES CUSTOMER AUTHENTICATION):
-- Verifies customer identity using DNI before accessing private order data
-- Tools: get_order(), get_customer_orders(), get_nuvemshop_order_tracking(), get_nuvemshop_payment_history()
-- **When to handoff:** Order status, tracking, payment issues, returns, order history
+- Verifies customer identity using DNI before accessing order data
+- Tools: check_auth_status(), verify_dni(), get_last_order()
+- **When to handoff:** Order status, tracking, payment issues, returns
 - **Note:** Orders Agent will request DNI verification (last 3 digits) for security
+- **Limitation:** Can only show the most recent order (direct to website for order history)
 
 **Products Agent** - Product queries:
 - Tools: search_products(), get_product(), get_nuvemshop_categories(), get_nuvemshop_promotions(), validate_nuvemshop_coupon()

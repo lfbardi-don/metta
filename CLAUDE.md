@@ -105,10 +105,12 @@ AppModule
 - ✅ **OdooService** - ERP integration (pending MCP refactor)
 
 **MCP Servers (Cloudflare Workers) - Complete:**
-- ✅ **Nuvemshop Orders MCP** - 6 tools (4 order + 2 auth) with Cloudflare KV sessions
+- ✅ **Nuvemshop Orders MCP** - 3 tools (check_auth_status, verify_dni, get_last_order) with Cloudflare KV sessions
 - ✅ **Nuvemshop Products MCP** - 7 product tools (search, stock, categories, SKU lookup)
 - ✅ **Authentication** - DNI verification with 30-minute sessions in Cloudflare KV
 - ✅ **OpenAI Vector Store** - FAQ search with file search tool
+
+**Note on Orders MCP:** The API has been simplified - `get_last_order` returns the customer's most recent order with fulfillments (tracking) included. Order history/list functionality has been removed.
 
 **Workflow System - Complete:**
 - ✅ **Classifier Agent** - Routes by intent (ORDER_STATUS, PRODUCT_INFO, STORE_INFO, OTHERS)
@@ -149,16 +151,18 @@ const ordersTools = hostedMcpTool({
   serverLabel: "NuvemShop_Orders",
   serverUrl: "https://nuvemshop-orders.luisfbardi.workers.dev/sse",
   allowedTools: [
-    "get_nuvemshop_order",
-    "get_nuvemshop_customer_orders",
-    "get_nuvemshop_order_tracking",
-    "get_nuvemshop_payment_history",
     "check_auth_status",
-    "verify_dni"
+    "verify_dni",
+    "get_last_order"  // Returns single order with fulfillments (tracking) included
   ],
-  requireApproval: "always"
+  requireApproval: "never"
 });
 ```
+
+**Note:** The Orders MCP now uses a simplified API:
+- `check_auth_status(conversationId)` - Check if customer is authenticated
+- `verify_dni(conversationId, email, dniLastDigits)` - Authenticate customer with DNI
+- `get_last_order(conversationId)` - Get customer's most recent order (includes tracking in fulfillments array)
 
 ### WorkflowAIService
 **Location**: `src/modules/ai/workflow-ai.service.ts`

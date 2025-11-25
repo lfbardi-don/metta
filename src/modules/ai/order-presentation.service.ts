@@ -111,10 +111,11 @@ export class OrderPresentationService {
       return 'FULL_ORDER';
     }
 
-    // ORDER_LIST - Always use compact format for lists
+    // ORDER_LIST - Now returns FULL_ORDER since we can only show one order
+    // The API only supports get_last_order (no order history)
     if (type === 'ORDER_LIST') {
-      this.logger.log('Presentation mode: COMPACT (order list request)');
-      return 'COMPACT';
+      this.logger.log('Presentation mode: FULL_ORDER (order list request - limited to last order only)');
+      return 'FULL_ORDER';
     }
 
     // TRACKING_QUERY - Use TRACKING_ONLY if order was recently mentioned

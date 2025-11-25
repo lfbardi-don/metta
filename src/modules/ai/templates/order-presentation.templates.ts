@@ -102,6 +102,7 @@ Rules:
 /**
  * PAYMENT_ONLY - Just payment/transaction information
  * Used for: Payment-specific queries about recently mentioned orders
+ * Note: Detailed transaction history is no longer available (API limitation)
  */
 export const PAYMENT_ONLY_INSTRUCTIONS = `
 **PRESENTATION MODE: PAYMENT_ONLY**
@@ -114,14 +115,14 @@ Response format:
 \`\`\`
 Pedido #{orderNumber} - Estado de pago: {paymentStatus}
 {if paymentMethod: Método: {paymentMethod}}
-{if lastTransaction: Última transacción: {transactionDate} - {transactionStatus}}
-{if refund: Reembolso: {refundStatus} - \${refundAmount}}
+{if gateway: Gateway: {gateway}}
 \`\`\`
 
 Rules:
 - Focus only on payment-related information
-- Include transaction history if relevant
+- Show paymentStatus, paymentMethod, and gateway from order response
 - Do NOT repeat order items or shipping info
+- For detailed transaction history, direct customer to metta.com.ar
 - Be clear about any pending actions needed
 `;
 
