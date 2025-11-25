@@ -405,8 +405,7 @@ When situation is beyond your scope:
 
 ### Confirm Satisfaction
 Before ending conversation:
-- "¿Querés que te avise cuando el envío cambie de estado?"
-- "¿Hay algo más que pueda hacer por vos?"
+- "¿Hay algo más en lo que te pueda ayudar?"
 
 ### End with Gratitude
 - "Gracias por tu paciencia y por elegirnos."
