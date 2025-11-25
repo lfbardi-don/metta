@@ -74,12 +74,9 @@ const mcp = wrapToolForLogging(hostedMcpTool({
   serverLabel: 'NuvemShop_Orders',
   serverUrl: 'https://nuvemshop-orders.luisfbardi.workers.dev/sse',
   allowedTools: [
-    'get_nuvemshop_order',
-    'get_nuvemshop_customer_orders',
-    'get_nuvemshop_order_tracking',
-    'get_nuvemshop_payment_history',
     'check_auth_status',
     'verify_dni',
+    'get_last_order',
   ],
   requireApproval: 'never',
 }));
@@ -158,6 +155,7 @@ Totally unclear → <0.5`,
  *
  * @param conversationState - Current conversation state with order mentions
  * @param authState - Customer authentication state (24-hour window)
+ * @param conversationId - Chatwoot conversation ID (required for get_last_order tool)
  * @param presentationMode - How orders should be presented (FULL_ORDER, TRACKING_ONLY, etc.)
  * @param presentationInstructions - Specific instructions for presentation format
  * @returns Agent configured with state-aware and context-aware instructions
@@ -165,6 +163,7 @@ Totally unclear → <0.5`,
 const createOrdersAgent = (
   conversationState: ConversationState | null,
   authState: CustomerAuthState | null,
+  conversationId: string,
   presentationMode?: OrderPresentationMode,
   presentationInstructions?: string,
 ) => {
@@ -214,7 +213,7 @@ If you don't know the order number, ASK the customer. Do not guess.
 - Verified at: ${authState.verifiedAt.toLocaleString()}
 - Session expires in: ~${hoursRemaining}h
 
-Proceed directly with order tools. Use the email above for get_customer_orders().
+Proceed directly with get_last_order("${conversationId}") to fetch their most recent order.
 
 `;
   } else {
@@ -222,14 +221,16 @@ Proceed directly with order tools. Use the email above for get_customer_orders()
 
 ## Authentication Status: NOT VERIFIED
 
-Customer must authenticate before accessing order information.
+**CRITICAL:** Customer MUST authenticate before you can access any order information.
 
 **Authentication Flow:**
 1. Ask: "Para ver tu información de pedidos, necesito que me confirmes tu email y los últimos 3 dígitos de tu DNI."
-2. Wait for customer to provide both
-3. Call: verify_dni(email: "[EMAIL_1]", dniLastDigits: "123")
-4. On success: Proceed with order tools
+2. Wait for customer to provide both email and DNI digits
+3. Call: verify_dni(conversationId: "${conversationId}", email: "[EMAIL_1]", dniLastDigits: "123")
+4. On success: Call get_last_order("${conversationId}") to fetch their order
 5. On failure: Allow one retry, then offer human escalation
+
+**IMPORTANT:** You cannot skip authentication. The get_last_order tool will fail without a valid session.
 
 `;
   }
@@ -285,77 +286,83 @@ Recognize the customer's feeling before diving into technical details:
 
 ### Authentication Tools
 
-#### check_auth_status()
+#### check_auth_status(conversationId)
 Check if customer is currently authenticated
 \`\`\`typescript
-Parameters: none
+Parameters:
+  - conversationId: string (use "${conversationId}")
 Returns: { authenticated: boolean, sessionExpiry?: string }
 \`\`\`
 
-#### verify_dni(email, dniLastDigits)
+#### verify_dni(conversationId, email, dniLastDigits)
 Verify customer identity with DNI digits
 \`\`\`typescript
 Parameters:
+  - conversationId: string (use "${conversationId}")
   - email: string (may be placeholder like "[EMAIL_1]")
   - dniLastDigits: string (3 digits, e.g., "123")
 Returns: { success: boolean, sessionExpiry: string }
 \`\`\`
 
-### Order Information Tools
+### Order Tool
 
-#### get_nuvemshop_order(orderIdentifier)
-Get complete order details by order NUMBER (NOT internal ID)
+#### get_last_order(conversationId)
+Get the customer's most recent order with full details including tracking (fulfillments)
 \`\`\`typescript
 Parameters:
-  - orderIdentifier: string - USE THE ORDER NUMBER (e.g., "1234" or "#1234")
-  - NEVER use large internal IDs (like 1836000108) - use display numbers only
-Returns: Full order object with status, items, customer info, total
+  - conversationId: string (use "${conversationId}")
+Returns: Single order object with:
+  - id, orderNumber, status, currency
+  - subtotal, discount, shippingCost, total
+  - shippingMethod, shippingStatus
+  - paymentMethod, paymentStatus, gateway
+  - items: Array<{ name, quantity, price, sku? }>
+  - customer: { id, name, email }
+  - createdAt, updatedAt
+  - fulfillments: Array<{  // TRACKING INFO IS HERE!
+      id, status, trackingCode, trackingUrl,
+      carrier, shippingType, minDeliveryDate, maxDeliveryDate
+    }>
 \`\`\`
 
-**CRITICAL:** When customer says "pedido #1234" or "order 1234", pass "1234" to the tool.
-DO NOT invent or fabricate order IDs. Use exactly what the customer provides.
+**IMPORTANT:**
+- This tool requires authentication - customer must be verified first
+- Returns ONLY the most recent order (not order history)
+- Tracking information is included in the \`fulfillments\` array
+- Payment status is in \`paymentStatus\` and \`gateway\` fields
 
-#### get_customer_orders(email, limit?, days?, status?)
-Get customer's order history with filters
+## Limitation: Last Order Only
+
+You can only retrieve the customer's MOST RECENT order.
+
+**If customer asks for:**
+- Order history ("mis pedidos", "compras anteriores") → Explain limitation, direct to website
+- Specific order number that doesn't match → Show last order, explain they can check website for others
+- Multiple orders → Only the last one is available
+
+**Example responses:**
+- "Puedo mostrarte tu último pedido. Para ver todas tus compras, ingresá a tu cuenta en metta.com.ar"
+- "Acá tenés la info de tu última compra. Si necesitás datos de otro pedido, podés verlo en la web."
+
+## Workflow Pattern
+
+**Step 1: Check/Verify Authentication**
 \`\`\`typescript
-Parameters:
-  - email: string (may be "[EMAIL_1]" placeholder)
-  - limit: number (optional, default 5, max 20)
-  - days: number (optional, show last N days only)
-  - status: 'open' | 'closed' | 'cancelled' (optional)
-Returns: Array of orders sorted by most recent
+// First, check if already authenticated
+check_auth_status("${conversationId}")
+
+// If not authenticated, verify customer identity
+verify_dni("${conversationId}", "[EMAIL_1]", "123")
 \`\`\`
 
-#### get_nuvemshop_order_tracking(orderIdentifier)
-Get tracking numbers and shipment details
-
-#### get_nuvemshop_payment_history(orderIdentifier)
-Get payment transaction history for order
-
-## Tool Orchestration (Parallel Calling)
-
-When customer asks about an order, call multiple tools simultaneously:
-
-**Complete Order View:**
+**Step 2: Get Order (after authentication)**
 \`\`\`typescript
-// Customer: "¿Cómo está mi pedido #1234?"
-// USE THE EXACT NUMBER THE CUSTOMER GAVE YOU
-Parallel calls:
-  - get_nuvemshop_order("1234")  // ✅ Correct: use "1234"
-  - get_nuvemshop_order_tracking("1234")
-
-// ❌ WRONG: get_nuvemshop_order("1836000108") - NEVER invent IDs
+// Fetch the customer's last order with all details
+get_last_order("${conversationId}")
+// Response includes order status, items, tracking info, payment status
 \`\`\`
 
-**Payment Troubleshooting:**
-\`\`\`typescript
-// Customer: "¿Por qué me rechazaron el pago del pedido 5678?"
-Parallel calls:
-  - get_nuvemshop_order("5678")
-  - get_nuvemshop_payment_history("5678")
-\`\`\`
-
-**CRITICAL:** Trust tool data as source of truth. Use customer-provided order numbers EXACTLY.
+**CRITICAL:** Trust tool data as source of truth. Do not make multiple parallel calls for tracking or payment - all data comes in one response.
 
 ## Error Handling
 
@@ -378,10 +385,15 @@ When situation is beyond your scope:
 ## Important Notes
 
 ### PII Handling
-- You'll frequently use placeholders in tool calls (e.g., \`get_customer_orders(email: "[EMAIL_1]")\`)
+- You'll use placeholders in tool calls (e.g., \`verify_dni(conversationId: "${conversationId}", email: "[EMAIL_1]", dniLastDigits: "123")\`)
 - Tools automatically resolve placeholders to real values
 - Pass placeholders as-is, don't try to replace them
 - NEVER expose placeholders to customers in your responses
+
+### ConversationId
+- Always use \`"${conversationId}"\` when calling order tools
+- This ID links the authenticated session to the customer's orders
+- Do not modify or invent this value
 
 ### Brand Voice
 - Spanish (Argentina), use "vos"
@@ -983,6 +995,7 @@ type WorkflowInput = {
   input_as_text: string;
   conversationHistory?: AgentInputItem[];
   conversationState?: ConversationState;
+  conversationId?: string; // Required for order tools (get_last_order uses this for session lookup)
   // Product presentation (existing)
   presentationMode?: PresentationMode;
   presentationInstructions?: string;
@@ -1054,6 +1067,7 @@ Continue helping the customer achieve their goal naturally.
       const ordersAgent = createOrdersAgent(
         state.conversationState,
         workflow.authState || null,
+        workflow.conversationId || '',
         workflow.orderPresentationMode,
         workflow.orderPresentationInstructions,
       );
