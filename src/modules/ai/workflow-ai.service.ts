@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AgentInputItem } from '@openai/agents';
-import { runWorkflow } from './workflows/customer-service.workflow';
+import {
+  runWorkflow,
+  HandoffCallback,
+  WorkflowResult,
+} from './workflows/customer-service.workflow';
 import {
   IncomingMessage,
   MessageContext,
@@ -27,6 +31,7 @@ import { OrderPresentationService } from './order-presentation.service';
 import { ProductExtractionService } from './services/product-extraction.service';
 import { UseCaseDetectionService } from './services/use-case-detection.service';
 import { USE_CASE_WORKFLOWS } from './config/use-case-workflows.config';
+import { ChatwootService } from '../integrations/chatwoot/chatwoot.service';
 
 /**
  * Response from AI service with text and optional product images
@@ -39,6 +44,8 @@ export interface AIServiceResponse {
   initialState?: ConversationState['state'] | null; // State before processing (for incoming message audit trail)
   intent?: string; // Detected intent
   thinking?: string; // Chain of thought
+  handoffTriggered?: boolean; // Whether conversation was transferred to human
+  handoffReason?: string; // Reason for handoff
 }
 
 /**
@@ -68,6 +75,7 @@ export class WorkflowAIService {
     private readonly productExtractionService: ProductExtractionService,
     private readonly useCaseDetectionService: UseCaseDetectionService,
     private readonly prisma: PrismaService,
+    private readonly chatwootService: ChatwootService,
   ) {}
 
   /**
@@ -411,6 +419,30 @@ export class WorkflowAIService {
         hasAuthState: !!authState,
       });
 
+      // Create handoff callback to assign conversation to human support team
+      const onHandoff: HandoffCallback = async (
+        conversationId: string,
+        reason?: string,
+      ) => {
+        this.logger.log('Human handoff triggered', {
+          conversationId,
+          reason,
+        });
+
+        try {
+          await this.chatwootService.assignToTeam(conversationId);
+          this.logger.log('Conversation successfully assigned to human support team', {
+            conversationId,
+          });
+        } catch (error) {
+          this.logger.error('Failed to assign conversation to human support team', {
+            conversationId,
+            error: error.message,
+          });
+          // Don't throw - we still want to return the handoff message to the customer
+        }
+      };
+
       // Run workflow with history, state, presentation instructions, auth state, and goal context
       const result = await runWorkflow({
         input_as_text: message,
@@ -425,6 +457,8 @@ export class WorkflowAIService {
         orderPresentationMode,
         orderPresentationInstructions,
         goal,
+        // Human handoff callback
+        onHandoff,
       });
 
       this.logger.log('Workflow completed successfully');
@@ -487,6 +521,28 @@ export class WorkflowAIService {
             conversationId: context.conversationId,
           });
         }
+
+        // Detect transfer_to_human tool call from specialist agents
+        const toolHandoff = this.detectTransferToHumanToolCall(result.newItems);
+        if (toolHandoff.triggered && context.conversationId) {
+          this.logger.log('Human handoff triggered via tool call', {
+            conversationId: context.conversationId,
+            reason: toolHandoff.reason,
+          });
+
+          try {
+            await this.chatwootService.assignToTeam(context.conversationId);
+            this.logger.log('Conversation successfully assigned to human support team via tool', {
+              conversationId: context.conversationId,
+            });
+          } catch (error) {
+            this.logger.error('Failed to assign conversation to human support team', {
+              conversationId: context.conversationId,
+              error: error.message,
+            });
+            // Don't throw - we still want to return the response to the customer
+          }
+        }
       }
 
       // Retrieve conversation state to include in message metadata
@@ -494,6 +550,21 @@ export class WorkflowAIService {
         await this.persistenceService.getConversationState(
           context.conversationId,
         );
+
+      // Check if handoff was triggered (either by classifier or by tool call)
+      const workflowResult = result as WorkflowResult;
+      const toolHandoffResult = result.newItems
+        ? this.detectTransferToHumanToolCall(result.newItems)
+        : { triggered: false, reason: undefined };
+      const handoffTriggered = workflowResult.handoffTriggered || toolHandoffResult.triggered;
+      const handoffReason = workflowResult.handoffReason || toolHandoffResult.reason;
+
+      if (handoffTriggered) {
+        this.logger.log('Human handoff completed', {
+          conversationId: context.conversationId,
+          reason: handoffReason,
+        });
+      }
 
       return {
         response,
@@ -503,6 +574,8 @@ export class WorkflowAIService {
         metadata: {
           state: updatedConversationState?.state || { products: [], orders: [] },
         },
+        handoffTriggered,
+        handoffReason,
       };
     } catch (error) {
       this.logger.error('Workflow error', error.stack);
@@ -820,5 +893,63 @@ export class WorkflowAIService {
     }
 
     return { success: false, email: null };
+  }
+
+  /**
+   * Detect transfer_to_human tool call from specialist agents
+   * Returns whether handoff was triggered and the reason
+   */
+  private detectTransferToHumanToolCall(
+    newItems: any[],
+  ): { triggered: boolean; reason?: string; summary?: string } {
+    if (!newItems || newItems.length === 0) {
+      return { triggered: false };
+    }
+
+    for (const item of newItems) {
+      // Check for tool call outputs
+      if (item.type === 'tool_call_output' || item.type === 'function_call_output') {
+        const toolName = (item.name || '').toLowerCase();
+
+        // Check for transfer_to_human tool
+        if (toolName.includes('transfer_to_human') || toolName.includes('handoff')) {
+          try {
+            const output =
+              typeof item.output === 'string'
+                ? JSON.parse(item.output)
+                : item.output;
+
+            // Check for handoff_requested flag
+            if (output?.handoff_requested === true) {
+              this.logger.log('transfer_to_human tool detected', {
+                reason: output?.reason,
+                summary: output?.summary,
+              });
+              return {
+                triggered: true,
+                reason: output?.reason,
+                summary: output?.summary,
+              };
+            }
+          } catch (e) {
+            // Not JSON or invalid structure, skip
+          }
+        }
+      }
+
+      // Also check for tool calls (not outputs) in case the tool name is there
+      if (item.type === 'tool_call' || item.type === 'function_call') {
+        const toolName = (item.name || item.function?.name || '').toLowerCase();
+        if (toolName.includes('transfer_to_human') || toolName.includes('handoff')) {
+          this.logger.log('transfer_to_human tool call detected (from call, not output)');
+          return {
+            triggered: true,
+            reason: 'Transfer requested by agent',
+          };
+        }
+      }
+    }
+
+    return { triggered: false };
   }
 }

@@ -1,6 +1,7 @@
 import {
   hostedMcpTool,
   fileSearchTool,
+  tool,
   Agent,
   AgentInputItem,
   Runner,
@@ -92,8 +93,58 @@ const mcp1 = wrapToolForLogging(hostedMcpTool({
   serverUrl: 'https://nuvemshop-products.luisfbardi.workers.dev/sse',
 }));
 const fileSearch = fileSearchTool(['vs_6908fd1143388191af50558c88311abf']);
+
+/**
+ * Transfer to Human Tool
+ *
+ * This tool allows specialist agents (Orders, Products, FAQ) to transfer
+ * the conversation to a human agent when they determine it's necessary.
+ *
+ * Use cases:
+ * - Customer becomes very frustrated during interaction
+ * - Issue is too complex for the bot to handle
+ * - Customer explicitly asks for a human mid-conversation
+ * - Specialist determines handoff is needed after initial classification
+ *
+ * Note: The tool just returns a special response. The actual handoff
+ * (calling ChatwootService.assignToTeam) is handled by WorkflowAIService
+ * when it detects this tool was called in the workflow result.
+ */
+const transferToHumanTool = tool({
+  name: 'transfer_to_human',
+  description:
+    'Transfer the conversation to a human support agent. Use this when: (1) the customer is very frustrated or upset, (2) the issue is too complex to resolve, (3) the customer explicitly asks to speak with a person, (4) you cannot help with their request. When calling this tool, the conversation will be assigned to the human support team.',
+  parameters: z.object({
+    reason: z
+      .string()
+      .describe('Brief reason for the transfer (internal, not shown to customer)'),
+    summary: z
+      .string()
+      .optional()
+      .describe('Optional summary of the conversation for the human agent'),
+  }),
+  execute: async (params: { reason: string; summary?: string }) => {
+    // This tool doesn't actually perform the handoff - it just signals
+    // that handoff is needed. WorkflowAIService detects this in newItems
+    // and performs the actual handoff via ChatwootService.
+    return JSON.stringify({
+      handoff_requested: true,
+      reason: params.reason,
+      summary: params.summary,
+      message:
+        'Handoff requested. The conversation will be transferred to human support.',
+    });
+  },
+});
+
 const MettaClassifierSchema = z.object({
-  intent: z.enum(['ORDER_STATUS', 'PRODUCT_INFO', 'STORE_INFO', 'OTHERS']),
+  intent: z.enum([
+    'ORDER_STATUS',
+    'PRODUCT_INFO',
+    'STORE_INFO',
+    'HUMAN_HANDOFF',
+    'OTHERS',
+  ]),
   confidence: z.number(),
   explanation: z.string(),
 });
@@ -120,6 +171,22 @@ STORE_INFO → The user asks about the store itself: policies, hours, payment, d
 "¿Realizan envíos fuera de Buenos Aires?"
 "¿Cuál es el horario de apertura?"
 
+HUMAN_HANDOFF → The user needs to be transferred to a human agent. This includes:
+- **Serious complaints or frustration:** Customer expresses strong dissatisfaction, threatens to leave, or is very upset
+- **Product exchanges/returns:** Customer wants to exchange a product they received (different from asking about policy)
+- **Refund requests:** Customer explicitly asks for money back
+- **Issues beyond bot scope:** Complex problems the bot cannot resolve
+- **Explicit request for human:** Customer directly asks to speak with a person
+Examples:
+"Estoy muy insatisfecho con el servicio"
+"Quiero cancelar todo"
+"Quiero devolver mi pedido"
+"Quiero cambiar el producto que me llegó"
+"El producto vino fallado, quiero cambiarlo"
+"Necesito que me devuelvan la plata"
+"Quiero hablar con una persona"
+"Pasame con un humano"
+"Me llegó el producto equivocado"
 
 OTHERS → The message doesn't fit any of the above (greetings, spam, nonsense, or agent-irrelevant).  Examples:
 \"Hola\", \"¿Cómo estás?\", \"Ayuda\", \"¿Eres un robot?\"
@@ -136,6 +203,7 @@ DECISION RULES
 If unsure between two intents, choose the one most likely to lead to a useful next step for a customer (usually ORDER_STATUS or PRODUCT_INFO).
 Do not hallucinate or infer details not mentioned.
 Use OTHERS for ambiguous, incomplete, or greeting-only inputs.
+Use HUMAN_HANDOFF when the customer shows strong negative emotions, requests exchanges/returns of received products, asks for refunds, or explicitly asks for a human.
 Keep the confidence realistic:
 Clear question → 0.9–1.0
 Somewhat ambiguous → 0.6–0.8
@@ -410,9 +478,19 @@ Before ending conversation:
 ### End with Gratitude
 - "Gracias por tu paciencia y por elegirnos."
 - "Cualquier cosa, escribime tranqui."
+
+## Human Handoff Tool
+
+You have access to a \`transfer_to_human\` tool. Use it when:
+- The customer becomes very frustrated or angry
+- The issue is too complex to resolve (multiple failed attempts)
+- The customer explicitly asks to speak with a person
+- You cannot help with their specific request
+
+When you call this tool, you MUST still respond to the customer with a friendly handoff message.
 `,
     model: 'gpt-4.1',
-    tools: [mcp],
+    tools: [mcp, transferToHumanTool],
     outputType: AIResponseSchema,
     modelSettings: {
       temperature: 0.7,
@@ -818,9 +896,19 @@ See: [Metta Brand Voice Guide](./shared/brand-voice.md)
 Always finish upbeat and encouraging:
 - \"Espero que encuentres tu jean perfecto. Si querés te ayudo a elegir más opciones.\"
 - \"¿Hay algo más que quieras ver?\"
+
+## Human Handoff Tool
+
+You have access to a \`transfer_to_human\` tool. Use it when:
+- The customer becomes very frustrated or angry
+- The issue is too complex to resolve
+- The customer explicitly asks to speak with a person
+- You cannot help with their specific request
+
+When you call this tool, you MUST still respond to the customer with a friendly handoff message.
 `,
     model: 'gpt-4.1',
-    tools: [mcp1],
+    tools: [mcp1, transferToHumanTool],
     modelSettings: {
       temperature: 0.7,
       topP: 1,
@@ -990,6 +1078,56 @@ If user repeats "hello" multiple times, respond once and then ask how you can he
   },
 });
 
+/**
+ * Handoff Agent - Handles transfer to human support
+ *
+ * This agent creates a smooth transition message for the customer
+ * when they need to be transferred to a human agent.
+ */
+const handoffAgent = new Agent({
+  name: 'Handoff Agent',
+  instructions: `You are Luna from Metta, and your job is to smoothly transition the customer to a human agent.
+
+## Your Role
+You acknowledge the customer's concern and let them know a human team member will help them.
+
+## Guidelines
+1. **Acknowledge their concern** - Show you understand why they need human help
+2. **Set expectations** - Let them know someone will be with them shortly
+3. **Stay warm** - Maintain Metta's friendly, supportive tone
+4. **Be brief** - One short message, no lengthy explanations
+
+## Response Format
+Keep your response to 1-2 short sentences. Be warm but concise.
+
+## Examples
+- "Entiendo, te paso con un compañero del equipo que te va a ayudar mejor con esto. Un momento que ya te atienden."
+- "Claro, te comunico con alguien de nuestro equipo que puede ayudarte con eso."
+- "Te entiendo perfectamente. Dejame pasarte con alguien que puede darte una solución."
+
+## Important
+- Use Spanish (Argentina), vos form
+- Never apologize excessively
+- Don't promise specific wait times
+- Don't mention "bot" or "AI" - just say you're connecting them with a team member`,
+  model: 'gpt-4.1-mini',
+  outputType: AIResponseSchema,
+  modelSettings: {
+    temperature: 0.6,
+    topP: 1,
+    maxTokens: 256,
+    store: true,
+  },
+});
+
+/**
+ * Handoff callback type for triggering human handoff from workflow
+ */
+export type HandoffCallback = (
+  conversationId: string,
+  reason?: string,
+) => Promise<void>;
+
 type WorkflowInput = {
   input_as_text: string;
   conversationHistory?: AgentInputItem[];
@@ -1003,6 +1141,27 @@ type WorkflowInput = {
   orderPresentationMode?: OrderPresentationMode;
   orderPresentationInstructions?: string;
   goal?: any | null; // Active customer goal (simplified from useCase)
+  // Human handoff callback
+  onHandoff?: HandoffCallback;
+};
+
+/**
+ * Workflow result with optional handoff flag
+ *
+ * The output type matches AIResponseSchema which is used by all agents.
+ * When handoffTriggered is true, it means the conversation was transferred
+ * to human support (either via classifier intent or tool call).
+ */
+export type WorkflowResult = {
+  output: {
+    user_intent?: string;
+    response_text?: string;
+    products?: Array<{ id?: number; name: string; confidence: number }>;
+    thinking?: string;
+  };
+  newItems: any[];
+  handoffTriggered?: boolean;
+  handoffReason?: string;
 };
 
 // Main code entrypoint
@@ -1128,6 +1287,34 @@ Continue helping the customer achieve their goal naturally.
         newItems: faqAgentResultTemp.newItems,
       };
       return faqAgentResult;
+    } else if (mettaClassifierResult.output_parsed.intent == 'HUMAN_HANDOFF') {
+      // Generate handoff message using HandoffAgent
+      const handoffAgentResultTemp = await runner.run(handoffAgent, [
+        ...conversationHistory,
+      ]);
+      conversationHistory.push(
+        ...handoffAgentResultTemp.newItems.map((item) => item.rawItem),
+      );
+
+      if (!handoffAgentResultTemp.finalOutput) {
+        throw new Error('Agent result is undefined');
+      }
+
+      // Trigger handoff callback if provided
+      if (workflow.onHandoff && workflow.conversationId) {
+        await workflow.onHandoff(
+          workflow.conversationId,
+          mettaClassifierResult.output_parsed.explanation,
+        );
+      }
+
+      const handoffResult: WorkflowResult = {
+        output: handoffAgentResultTemp.finalOutput,
+        newItems: handoffAgentResultTemp.newItems,
+        handoffTriggered: true,
+        handoffReason: mettaClassifierResult.output_parsed.explanation,
+      };
+      return handoffResult;
     } else {
       const greetingsAgentResultTemp = await runner.run(greetingsAgent, [
         ...conversationHistory,

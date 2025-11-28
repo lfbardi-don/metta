@@ -261,6 +261,46 @@ export class ChatwootService {
   }
 
   /**
+   * Assign a conversation to a team for human handoff
+   * @param conversationId - The Chatwoot conversation ID
+   * @param teamId - The team ID to assign (optional, uses CHATWOOT_SUPPORT_TEAM_ID if not provided)
+   */
+  async assignToTeam(conversationId: string, teamId?: number): Promise<void> {
+    try {
+      const supportTeamId =
+        teamId ||
+        this.configService.get<number>('CHATWOOT_SUPPORT_TEAM_ID', 1);
+
+      const endpoint = `/api/v1/accounts/${this.accountId}/conversations/${conversationId}/assignments`;
+
+      this.logger.log(
+        `Assigning conversation ${conversationId} to team ${supportTeamId}`,
+      );
+
+      await this.axiosInstance.post(endpoint, {
+        team_id: supportTeamId,
+      });
+
+      this.logger.log(
+        `Conversation ${conversationId} successfully assigned to team ${supportTeamId}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to assign conversation ${conversationId} to team`,
+        {
+          conversationId,
+          error: error.message,
+          response: error.response?.data,
+          status: error.response?.status,
+        },
+      );
+      throw new Error(
+        `Failed to assign conversation to team: ${error.message}`,
+      );
+    }
+  }
+
+  /**
    * Get conversation details from Chatwoot
    */
   async getConversation(conversationId: string): Promise<any> {
