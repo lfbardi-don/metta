@@ -272,26 +272,42 @@ export class ChatwootService {
         this.configService.get<number>('CHATWOOT_SUPPORT_TEAM_ID', 1);
 
       const endpoint = `/api/v1/accounts/${this.accountId}/conversations/${conversationId}/assignments`;
+      const apiUrl = this.configService.get<string>('CHATWOOT_API_URL', '');
 
       this.logger.log(
-        `Assigning conversation ${conversationId} to team ${supportTeamId}`,
+        `[HANDOFF] Assigning conversation to team`,
+        {
+          conversationId,
+          teamId: supportTeamId,
+          endpoint,
+          fullUrl: `${apiUrl}${endpoint}`,
+          accountId: this.accountId,
+        },
       );
 
-      await this.axiosInstance.post(endpoint, {
+      const response = await this.axiosInstance.post(endpoint, {
         team_id: supportTeamId,
       });
 
       this.logger.log(
-        `Conversation ${conversationId} successfully assigned to team ${supportTeamId}`,
+        `[HANDOFF] Conversation successfully assigned to team`,
+        {
+          conversationId,
+          teamId: supportTeamId,
+          responseStatus: response.status,
+          responseData: response.data,
+        },
       );
     } catch (error) {
       this.logger.error(
-        `Failed to assign conversation ${conversationId} to team`,
+        `[HANDOFF] Failed to assign conversation to team`,
         {
           conversationId,
+          teamId: teamId || this.configService.get<number>('CHATWOOT_SUPPORT_TEAM_ID', 1),
           error: error.message,
           response: error.response?.data,
           status: error.response?.status,
+          headers: error.response?.headers,
         },
       );
       throw new Error(

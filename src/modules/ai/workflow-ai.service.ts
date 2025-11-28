@@ -424,20 +424,25 @@ export class WorkflowAIService {
         conversationId: string,
         reason?: string,
       ) => {
-        this.logger.log('Human handoff triggered', {
+        this.logger.log('[HANDOFF] ===== HUMAN HANDOFF TRIGGERED (via classifier) =====', {
           conversationId,
           reason,
+          timestamp: new Date().toISOString(),
         });
 
         try {
+          this.logger.log('[HANDOFF] Calling chatwootService.assignToTeam...', {
+            conversationId,
+          });
           await this.chatwootService.assignToTeam(conversationId);
-          this.logger.log('Conversation successfully assigned to human support team', {
+          this.logger.log('[HANDOFF] SUCCESS - Conversation assigned to human support team', {
             conversationId,
           });
         } catch (error) {
-          this.logger.error('Failed to assign conversation to human support team', {
+          this.logger.error('[HANDOFF] FAILED - Could not assign conversation to team', {
             conversationId,
             error: error.message,
+            stack: error.stack,
           });
           // Don't throw - we still want to return the handoff message to the customer
         }
@@ -525,20 +530,26 @@ export class WorkflowAIService {
         // Detect transfer_to_human tool call from specialist agents
         const toolHandoff = this.detectTransferToHumanToolCall(result.newItems);
         if (toolHandoff.triggered && context.conversationId) {
-          this.logger.log('Human handoff triggered via tool call', {
+          this.logger.log('[HANDOFF] ===== HUMAN HANDOFF TRIGGERED (via tool call) =====', {
             conversationId: context.conversationId,
             reason: toolHandoff.reason,
+            summary: toolHandoff.summary,
+            timestamp: new Date().toISOString(),
           });
 
           try {
+            this.logger.log('[HANDOFF] Calling chatwootService.assignToTeam...', {
+              conversationId: context.conversationId,
+            });
             await this.chatwootService.assignToTeam(context.conversationId);
-            this.logger.log('Conversation successfully assigned to human support team via tool', {
+            this.logger.log('[HANDOFF] SUCCESS - Conversation assigned to human support team via tool', {
               conversationId: context.conversationId,
             });
           } catch (error) {
-            this.logger.error('Failed to assign conversation to human support team', {
+            this.logger.error('[HANDOFF] FAILED - Could not assign conversation to team', {
               conversationId: context.conversationId,
               error: error.message,
+              stack: error.stack,
             });
             // Don't throw - we still want to return the response to the customer
           }
