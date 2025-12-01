@@ -6,6 +6,7 @@ export const AIResponseSchema = z.object({
         'PRODUCT_INFO',
         'STORE_INFO',
         'GREETING',
+        'HUMAN_HANDOFF',
         'OTHERS',
     ]).describe('The detected intent of the user message'),
 
