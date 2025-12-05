@@ -67,16 +67,14 @@ export class WorkflowAIService {
   private readonly logger = new Logger(WorkflowAIService.name);
 
   constructor(
-    private readonly configService: ConfigService,
     private readonly guardrailsService: GuardrailsService,
     private readonly persistenceService: PersistenceService,
     private readonly productPresentationService: ProductPresentationService,
     private readonly orderPresentationService: OrderPresentationService,
     private readonly productExtractionService: ProductExtractionService,
     private readonly useCaseDetectionService: UseCaseDetectionService,
-    private readonly prisma: PrismaService,
     private readonly chatwootService: ChatwootService,
-  ) {}
+  ) { }
 
   /**
    * Process an incoming message through the workflow-based AI system
@@ -464,6 +462,17 @@ export class WorkflowAIService {
         goal,
         // Human handoff callback
         onHandoff,
+        // Exchange state update callback (for persistence)
+        onExchangeStateUpdate: async (convId: string, exchangeState) => {
+          this.logger.log('Persisting exchange state', {
+            conversationId: convId,
+            step: exchangeState.step,
+            hasOrderId: !!exchangeState.orderId,
+          });
+          await this.persistenceService.updateFullConversationState(convId, {
+            exchangeState,
+          });
+        },
       });
 
       this.logger.log('Workflow completed successfully');

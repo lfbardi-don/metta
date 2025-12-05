@@ -68,6 +68,77 @@ export enum GoalType {
 }
 
 /**
+ * Exchange State - Tracks the progress of a product exchange flow
+ *
+ * Based on REGLA 4 from metta_policies.md v2.0:
+ * PASO 0: Identificación del cliente y pedido (nombre + número de pedido)
+ * PASO 1: Identificar qué producto se quiere cambiar
+ * PASO 2: Preguntar por qué talle/color quiere cambiarlo
+ * PASO 3: Verificar stock
+ * PASO 4: Confirmar producto final del cambio
+ * PASO 5: Pedir sucursal de Correo Argentino o dirección
+ * PASO 6: Explicar política de cambios
+ * PASO 7: Derivar a humano (ÚNICO momento de derivación)
+ */
+export type ExchangeStep =
+  | 'identify_customer'    // PASO 0: Pedir nombre + número de pedido
+  | 'validate_order'       // PASO 0: Consultar pedido en Tienda Nube
+  | 'select_product'       // PASO 1: Cuál producto quiere cambiar
+  | 'get_new_product'      // PASO 2: Por qué talle/color
+  | 'check_stock'          // PASO 3: Verificar stock
+  | 'confirm_exchange'     // PASO 4: Confirmar producto final
+  | 'get_address'          // PASO 5: Sucursal o dirección
+  | 'explain_policy'       // PASO 6: Explicar política de envío
+  | 'ready_for_handoff';   // PASO 7: Derivar a humano
+
+export interface ExchangeProductInfo {
+  name?: string;
+  size?: string;
+  color?: string;
+  sku?: string;
+  productId?: number;
+  hasStock?: boolean;
+}
+
+export interface ExchangeState {
+  /** Current step in the exchange flow */
+  step: ExchangeStep;
+
+  /** Authentication status (PASO 0) */
+  isAuthenticated?: boolean;
+
+  /** Order info from Tienda Nube */
+  orderNumber?: string;
+  orderId?: string;
+  orderDate?: string;
+  orderStatus?: string;
+  orderItems?: ExchangeProductInfo[];
+
+  /** Product to exchange (PASO 1) */
+  originalProduct?: ExchangeProductInfo;
+
+  /** New product desired (PASO 2-4) */
+  newProduct?: ExchangeProductInfo;
+
+  /** Alternative products offered (if original choice not in stock) */
+  alternativesOffered?: ExchangeProductInfo[];
+
+  /** Shipping info (PASO 5) */
+  shippingAddress?: string;
+  correoArgentinoBranch?: string;
+
+  /** Policy explained (PASO 6) */
+  policyExplained?: boolean;
+
+  /** Validation attempts (máx 2 antes de derivar) */
+  validationAttempts?: number;
+
+  /** Timestamps */
+  startedAt?: Date;
+  lastUpdatedAt?: Date;
+}
+
+/**
  * Customer Goal - Simplified journey tracking
  *
  * Replaces complex UseCase with steps. Focuses on WHAT the customer wants,
@@ -138,6 +209,9 @@ export interface ConversationState {
 
     /** Recently completed goals (last 3) */
     recentGoals?: CustomerGoal[];
+
+    /** Active exchange flow state (REGLA 4) */
+    exchangeState?: ExchangeState | null;
 
     /** Last conversation topic for continuity */
     lastTopic?: string;
