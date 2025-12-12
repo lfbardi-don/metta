@@ -251,13 +251,18 @@ export class WorkflowAIService {
         });
 
         try {
-          await this.chatwootService.assignToTeam(context.conversationId);
-          handoffFromUnknownCase = true;
-          this.logger.log('[HANDOFF] SUCCESS - Unknown case assigned to human support team', {
+          const handoffResult = await this.chatwootService.assignToAgentWithLabel(
+            context.conversationId,
+            undefined,
+            ['requiere_atencion'], // Unknown cases only get requiere_atencion
+          );
+          handoffFromUnknownCase = handoffResult.success;
+          this.logger.log('[HANDOFF] Result:', {
             conversationId: context.conversationId,
+            ...handoffResult,
           });
         } catch (error) {
-          this.logger.error('[HANDOFF] FAILED - Could not assign unknown case to team', {
+          this.logger.error('[HANDOFF] FAILED - Could not assign unknown case', {
             conversationId: context.conversationId,
             error: error.message,
           });
@@ -483,15 +488,24 @@ export class WorkflowAIService {
         });
 
         try {
-          this.logger.log('[HANDOFF] Calling chatwootService.assignToTeam...', {
+          // Determine labels based on reason - exchange gets both labels
+          const isExchange = reason?.toLowerCase().includes('exchange') ||
+            reason?.toLowerCase().includes('cambio');
+          const labels = isExchange
+            ? ['requiere_atencion', 'cambio']
+            : ['requiere_atencion'];
+
+          this.logger.log('[HANDOFF] Calling chatwootService.assignToAgentWithLabel...', {
             conversationId,
+            labels,
           });
-          await this.chatwootService.assignToTeam(conversationId);
-          this.logger.log('[HANDOFF] SUCCESS - Conversation assigned to human support team', {
+          const result = await this.chatwootService.assignToAgentWithLabel(conversationId, undefined, labels);
+          this.logger.log('[HANDOFF] Result:', {
             conversationId,
+            ...result,
           });
         } catch (error) {
-          this.logger.error('[HANDOFF] FAILED - Could not assign conversation to team', {
+          this.logger.error('[HANDOFF] FAILED - Could not assign conversation', {
             conversationId,
             error: error.message,
             stack: error.stack,
@@ -601,15 +615,24 @@ export class WorkflowAIService {
           });
 
           try {
-            this.logger.log('[HANDOFF] Calling chatwootService.assignToTeam...', {
+            // Determine labels based on reason - exchange gets both labels
+            const isExchange = toolHandoff.reason?.toLowerCase().includes('exchange') ||
+              toolHandoff.reason?.toLowerCase().includes('cambio');
+            const labels = isExchange
+              ? ['requiere_atencion', 'cambio']
+              : ['requiere_atencion'];
+
+            this.logger.log('[HANDOFF] Calling chatwootService.assignToAgentWithLabel...', {
               conversationId: context.conversationId,
+              labels,
             });
-            await this.chatwootService.assignToTeam(context.conversationId);
-            this.logger.log('[HANDOFF] SUCCESS - Conversation assigned to human support team via tool', {
+            const handoffResult = await this.chatwootService.assignToAgentWithLabel(context.conversationId, undefined, labels);
+            this.logger.log('[HANDOFF] Result:', {
               conversationId: context.conversationId,
+              ...handoffResult,
             });
           } catch (error) {
-            this.logger.error('[HANDOFF] FAILED - Could not assign conversation to team', {
+            this.logger.error('[HANDOFF] FAILED - Could not assign conversation', {
               conversationId: context.conversationId,
               error: error.message,
               stack: error.stack,

@@ -261,58 +261,128 @@ export class ChatwootService {
   }
 
   /**
-   * Assign a conversation to a team for human handoff
-   * @param conversationId - The Chatwoot conversation ID
-   * @param teamId - The team ID to assign (optional, uses CHATWOOT_SUPPORT_TEAM_ID if not provided)
+   * Horário comercial de atendimento humano
+   * Lunes a Viernes 09:00 - 17:00 (Argentina)
    */
-  async assignToTeam(conversationId: string, teamId?: number): Promise<void> {
-    try {
-      const supportTeamId =
-        teamId ||
-        this.configService.get<number>('CHATWOOT_SUPPORT_TEAM_ID', 1);
+  isWithinBusinessHours(): boolean {
+    const now = new Date();
+    const argentinaTime = new Date(
+      now.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }),
+    );
 
-      const endpoint = `/api/v1/accounts/${this.accountId}/conversations/${conversationId}/assignments`;
-      const apiUrl = this.configService.get<string>('CHATWOOT_API_URL', '');
+    const dayOfWeek = argentinaTime.getDay();
+    const hour = argentinaTime.getHours();
 
-      this.logger.log(
-        `[HANDOFF] Assigning conversation to team`,
-        {
-          conversationId,
-          teamId: supportTeamId,
-          endpoint,
-          fullUrl: `${apiUrl}${endpoint}`,
-          accountId: this.accountId,
-        },
-      );
+    // 0 = Domingo, 6 = Sábado
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      return false;
+    }
 
-      const response = await this.axiosInstance.post(endpoint, {
-        team_id: supportTeamId,
+    // 09:00 - 17:00
+    return hour >= 9 && hour < 17;
+  }
+
+  /**
+   * Assign a conversation to a specific agent and add labels for human handoff
+   * Only works during business hours (9-17 L-V Argentina)
+   * 
+   * @param conversationId - The Chatwoot conversation ID
+   * @param agentId - The agent ID to assign (optional, uses CHATWOOT_HANDOFF_AGENT_ID if not provided)
+   * @param labels - The labels to add (defaults to ['requiere_atencion', 'cambio'])
+   * @returns Object with success status and whether it was within business hours
+   */
+  async assignToAgentWithLabel(
+    conversationId: string,
+    agentId?: number,
+    labels?: string[],
+  ): Promise<{ success: boolean; withinBusinessHours: boolean; message: string }> {
+    // Check business hours first
+    const withinBusinessHours = this.isWithinBusinessHours();
+
+    if (!withinBusinessHours) {
+      this.logger.log('[HANDOFF] Outside business hours - handoff not executed', {
+        conversationId,
+        currentTimeArgentina: new Date().toLocaleString('es-AR', {
+          timeZone: 'America/Argentina/Buenos_Aires',
+        }),
       });
 
-      this.logger.log(
-        `[HANDOFF] Conversation successfully assigned to team`,
-        {
-          conversationId,
-          teamId: supportTeamId,
-          responseStatus: response.status,
-          responseData: response.data,
-        },
-      );
+      return {
+        success: false,
+        withinBusinessHours: false,
+        message: 'Handoff skipped - outside business hours (9-17 L-V)',
+      };
+    }
+
+    const handoffAgentId =
+      agentId ||
+      this.configService.get<number>('CHATWOOT_HANDOFF_AGENT_ID', 150903);
+
+    const handoffLabels =
+      labels ||
+      ['requiere_atencion'];
+
+    const apiUrl = this.configService.get<string>('CHATWOOT_API_URL', '');
+
+    try {
+      // 1. Assign to agent
+      const assignEndpoint = `/api/v1/accounts/${this.accountId}/conversations/${conversationId}/assignments`;
+
+      this.logger.log('[HANDOFF] Assigning conversation to agent', {
+        conversationId,
+        agentId: handoffAgentId,
+        labels: handoffLabels,
+        fullUrl: `${apiUrl}${assignEndpoint}`,
+      });
+
+      await this.axiosInstance.post(assignEndpoint, {
+        assignee_id: handoffAgentId,
+      });
+
+      this.logger.log('[HANDOFF] Agent assignment successful', {
+        conversationId,
+        agentId: handoffAgentId,
+      });
+
+      // 2. Add labels
+      const labelEndpoint = `/api/v1/accounts/${this.accountId}/conversations/${conversationId}/labels`;
+
+      await this.axiosInstance.post(labelEndpoint, {
+        labels: handoffLabels,
+      });
+
+      this.logger.log('[HANDOFF] Labels added successfully', {
+        conversationId,
+        labels: handoffLabels,
+      });
+
+      return {
+        success: true,
+        withinBusinessHours: true,
+        message: `Assigned to agent ${handoffAgentId} with labels ${handoffLabels.join(', ')}`,
+      };
     } catch (error) {
-      this.logger.error(
-        `[HANDOFF] Failed to assign conversation to team`,
-        {
-          conversationId,
-          teamId: teamId || this.configService.get<number>('CHATWOOT_SUPPORT_TEAM_ID', 1),
-          error: error.message,
-          response: error.response?.data,
-          status: error.response?.status,
-          headers: error.response?.headers,
-        },
-      );
-      throw new Error(
-        `Failed to assign conversation to team: ${error.message}`,
-      );
+      this.logger.error('[HANDOFF] Failed to assign conversation', {
+        conversationId,
+        agentId: handoffAgentId,
+        labels: handoffLabels,
+        error: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+
+      throw new Error(`Failed to assign conversation: ${error.message}`);
+    }
+  }
+
+  /**
+   * @deprecated Use assignToAgentWithLabel instead
+   * Assign a conversation to a team for human handoff
+   */
+  async assignToTeam(conversationId: string, teamId?: number): Promise<void> {
+    const result = await this.assignToAgentWithLabel(conversationId);
+    if (!result.success && result.withinBusinessHours) {
+      throw new Error(result.message);
     }
   }
 
