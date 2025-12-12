@@ -1666,6 +1666,8 @@ export type WorkflowResult = {
   handoffReason?: string;
   // Updated exchange state (for persistence)
   exchangeState?: ExchangeState;
+  // Classifier confidence for unknown use case detection
+  classifierConfidence?: number;
 };
 
 // Main code entrypoint
@@ -1748,6 +1750,7 @@ Continue helping the customer achieve their goal naturally.
       const ordersAgentResult = {
         output: ordersAgentResultTemp.finalOutput,
         newItems: ordersAgentResultTemp.newItems,
+        classifierConfidence: mettaClassifierResult.output_parsed.confidence,
       };
       return ordersAgentResult;
     } else if (mettaClassifierResult.output_parsed.intent == 'PRODUCT_INFO') {
@@ -1772,6 +1775,7 @@ Continue helping the customer achieve their goal naturally.
       const productsAgentResult = {
         output: productsAgentResultTemp.finalOutput,
         newItems: productsAgentResultTemp.newItems,
+        classifierConfidence: mettaClassifierResult.output_parsed.confidence,
       };
       return productsAgentResult;
     } else if (mettaClassifierResult.output_parsed.intent == 'STORE_INFO') {
@@ -1789,6 +1793,7 @@ Continue helping the customer achieve their goal naturally.
       const faqAgentResult = {
         output: faqAgentResultTemp.finalOutput,
         newItems: faqAgentResultTemp.newItems,
+        classifierConfidence: mettaClassifierResult.output_parsed.confidence,
       };
       return faqAgentResult;
     } else if (mettaClassifierResult.output_parsed.intent == 'EXCHANGE_REQUEST') {
@@ -1862,6 +1867,7 @@ Continue helping the customer achieve their goal naturally.
           handoffTriggered: true,
           handoffReason: 'Exchange flow completed - all information collected',
           exchangeState: updatedExchangeState,
+          classifierConfidence: mettaClassifierResult.output_parsed.confidence,
         };
         return exchangeHandoffResult;
       }
@@ -1871,6 +1877,7 @@ Continue helping the customer achieve their goal naturally.
         output: exchangeAgentResultTemp.finalOutput,
         newItems: exchangeAgentResultTemp.newItems,
         exchangeState: updatedExchangeState,
+        classifierConfidence: mettaClassifierResult.output_parsed.confidence,
       };
       return exchangeAgentResult;
 
@@ -1900,6 +1907,7 @@ Continue helping the customer achieve their goal naturally.
         newItems: handoffAgentResultTemp.newItems,
         handoffTriggered: true,
         handoffReason: mettaClassifierResult.output_parsed.explanation,
+        classifierConfidence: mettaClassifierResult.output_parsed.confidence,
       };
       return handoffResult;
     } else {
@@ -1917,6 +1925,7 @@ Continue helping the customer achieve their goal naturally.
       const greetingsAgentResult = {
         output: greetingsAgentResultTemp.finalOutput,
         newItems: greetingsAgentResultTemp.newItems,
+        classifierConfidence: mettaClassifierResult.output_parsed.confidence,
       };
       return greetingsAgentResult;
     }

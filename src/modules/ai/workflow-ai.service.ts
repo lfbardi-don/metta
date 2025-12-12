@@ -30,6 +30,7 @@ import { ProductPresentationService } from './product-presentation.service';
 import { OrderPresentationService } from './order-presentation.service';
 import { ProductExtractionService } from './services/product-extraction.service';
 import { UseCaseDetectionService } from './services/use-case-detection.service';
+import { UnknownUseCaseService } from './services/unknown-use-case.service';
 import { USE_CASE_WORKFLOWS } from './config/use-case-workflows.config';
 import { ChatwootService } from '../integrations/chatwoot/chatwoot.service';
 
@@ -46,6 +47,8 @@ export interface AIServiceResponse {
   thinking?: string; // Chain of thought
   handoffTriggered?: boolean; // Whether conversation was transferred to human
   handoffReason?: string; // Reason for handoff
+  classifierConfidence?: number; // Classifier confidence for unknown case detection
+  unknownCaseSaved?: boolean; // Whether this was saved as unknown case for audit
 }
 
 /**
@@ -73,6 +76,7 @@ export class WorkflowAIService {
     private readonly orderPresentationService: OrderPresentationService,
     private readonly productExtractionService: ProductExtractionService,
     private readonly useCaseDetectionService: UseCaseDetectionService,
+    private readonly unknownUseCaseService: UnknownUseCaseService,
     private readonly chatwootService: ChatwootService,
   ) { }
 
@@ -215,6 +219,52 @@ export class WorkflowAIService {
     );
 
     const { response, products, intent, thinking } = workflowResult;
+    const classifierConfidence = (workflowResult as any).classifierConfidence;
+
+    // 4.1 Check for unknown use case and process accordingly
+    let unknownCaseSaved = false;
+    let handoffFromUnknownCase = false;
+
+    if (this.unknownUseCaseService.isUnknownCase(intent || 'OTHERS', classifierConfidence ?? 1.0)) {
+      this.logger.log('Unknown use case detected', {
+        conversationId: context.conversationId,
+        intent,
+        confidence: classifierConfidence,
+      });
+
+      const unknownCaseResult = await this.unknownUseCaseService.processUnknownCase({
+        conversationId: context.conversationId,
+        contactId: context.contactId,
+        messageContent: message.content,
+        detectedIntent: intent || 'OTHERS',
+        confidence: classifierConfidence ?? 0,
+        agentResponse: response,
+      });
+
+      unknownCaseSaved = unknownCaseResult.saved;
+
+      // Trigger handoff if within business hours
+      if (unknownCaseResult.shouldHandoff && !workflowResult.handoffTriggered) {
+        this.logger.log('[HANDOFF] Triggering handoff for unknown use case (within business hours)', {
+          conversationId: context.conversationId,
+          reason: unknownCaseResult.handoffReason,
+        });
+
+        try {
+          await this.chatwootService.assignToTeam(context.conversationId);
+          handoffFromUnknownCase = true;
+          this.logger.log('[HANDOFF] SUCCESS - Unknown case assigned to human support team', {
+            conversationId: context.conversationId,
+          });
+        } catch (error) {
+          this.logger.error('[HANDOFF] FAILED - Could not assign unknown case to team', {
+            conversationId: context.conversationId,
+            error: error.message,
+          });
+        }
+      }
+    }
+
 
     // 4.5. Detect or update customer goal based on AI's detected intent
     const goal = this.useCaseDetectionService.detectGoal(
@@ -297,6 +347,10 @@ export class WorkflowAIService {
         state: finalConversationState?.state || { products: [], useCases: { activeCases: [], completedCases: [] } },
       },
       initialState, // State before processing
+      classifierConfidence,
+      unknownCaseSaved,
+      handoffTriggered: workflowResult.handoffTriggered || handoffFromUnknownCase,
+      handoffReason: workflowResult.handoffReason || (handoffFromUnknownCase ? 'Caso no mapeado' : undefined),
     };
   }
 

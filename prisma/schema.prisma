@@ -68,3 +68,24 @@ model ConversationState {
 
   @@index([conversationId])
 }
+
+// UnknownUseCase - Auditoria de casos não mapeados
+// Para análise e melhoria contínua do sistema
+model UnknownUseCase {
+  id             String   @id @default(uuid())
+  conversationId String
+  contactId      String?
+  messageContent String   // Mensagem original do cliente
+  detectedIntent String   // Intent detectado pelo classificador
+  confidence     Float    // Score de confiança do classificador
+  agentResponse  String?  // Resposta que o agente deu (se houver)
+  wasHandedOff   Boolean  @default(false) // Se foi derivado para humano
+  handoffReason  String?  // Motivo da derivação
+  metadata       Json?    // Dados adicionais para análise
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([detectedIntent])
+  @@index([createdAt])
+  @@index([wasHandedOff])
+}
