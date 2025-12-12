@@ -70,26 +70,25 @@ export enum GoalType {
 /**
  * Exchange State - Tracks the progress of a product exchange flow
  *
- * Based on REGLA 4 from metta_policies.md v2.0:
+ * Based on REGLA 4 from metta_policies.md v2.0 (UPDATED):
  * PASO 0: Identificación del cliente y pedido (nombre + número de pedido)
+ * PASO 0b: Validar pedido + EXPLICAR POLÍTICA DE CAMBIO
  * PASO 1: Identificar qué producto se quiere cambiar
  * PASO 2: Preguntar por qué talle/color quiere cambiarlo
  * PASO 3: Verificar stock
  * PASO 4: Confirmar producto final del cambio
- * PASO 5: Pedir sucursal de Correo Argentino o dirección
- * PASO 6: Explicar política de cambios
- * PASO 7: Derivar a humano (ÚNICO momento de derivación)
+ * PASO 5: Pedir sucursal de Correo Argentino (para DEVOLUCIÓN)
+ * PASO 6: Derivar a humano (ÚNICO momento de derivación)
  */
 export type ExchangeStep =
   | 'identify_customer'    // PASO 0: Pedir nombre + número de pedido
-  | 'validate_order'       // PASO 0: Consultar pedido en Tienda Nube
+  | 'validate_order'       // PASO 0b: Consultar pedido + explicar política
   | 'select_product'       // PASO 1: Cuál producto quiere cambiar
   | 'get_new_product'      // PASO 2: Por qué talle/color
   | 'check_stock'          // PASO 3: Verificar stock
   | 'confirm_exchange'     // PASO 4: Confirmar producto final
-  | 'get_address'          // PASO 5: Sucursal o dirección
-  | 'explain_policy'       // PASO 6: Explicar política de envío
-  | 'ready_for_handoff';   // PASO 7: Derivar a humano
+  | 'get_address'          // PASO 5: Sucursal para DEVOLUCIÓN
+  | 'ready_for_handoff';   // PASO 6: Derivar a humano
 
 export interface ExchangeProductInfo {
   name?: string;
@@ -123,9 +122,9 @@ export interface ExchangeState {
   /** Alternative products offered (if original choice not in stock) */
   alternativesOffered?: ExchangeProductInfo[];
 
-  /** Shipping info (PASO 5) */
-  shippingAddress?: string;
-  correoArgentinoBranch?: string;
+  /** Return shipping info (PASO 5) - Sucursal de donde el cliente ENVÍA el producto a devolver */
+  returnShippingAddress?: string;
+  correoArgentinoReturnBranch?: string;
 
   /** Policy explained (PASO 6) */
   policyExplained?: boolean;

@@ -33,7 +33,7 @@ Steps to complete this use case:
 1. Authenticate customer (verify DNI)
 2. Fetch last order using get_last_order(conversationId)
 3. Present status clearly (tracking info is in fulfillments array)
-4. Ask: "¿Hay algo más que pueda hacer por vos con este pedido?"
+4. Close naturally: "Cualquier cosa, acá estoy 💛"
 Note: Only the most recent order is available. For order history, direct to metta.com.ar
     `.trim(),
   },
@@ -53,7 +53,7 @@ Steps to complete this use case:
 2. Fetch last order using get_last_order(conversationId)
 3. Extract tracking from fulfillments array (trackingCode, carrier, trackingUrl)
 4. Present tracking number and status
-5. Ask: "¿Necesitás ayuda con algo más sobre este envío?"
+5. Close naturally: "Estoy por acá para lo que necesites."
     `.trim(),
   },
 
@@ -73,7 +73,7 @@ Steps to complete this use case:
 2. Fetch last order using get_last_order(conversationId)
 3. Verify return eligibility (within 30 days, check order date)
 4. Provide return instructions
-5. Ask: "¿Necesitás ayuda con algo más sobre la devolución?"
+5. Close naturally: "Quedate tranqui, lo seguimos por acá."
     `.trim(),
   },
 
@@ -92,7 +92,7 @@ Steps to complete this use case:
 2. Fetch last order using get_last_order(conversationId)
 3. Extract payment info (paymentStatus, paymentMethod, gateway)
 4. Present payment status and method
-5. Ask: "¿Hay algo más que pueda ayudarte con el pago?"
+5. Close naturally: "Cualquier cosa, acá estoy 💛"
 Note: Detailed payment history is not available. For transaction details, direct to website.
     `.trim(),
   },
@@ -113,7 +113,7 @@ Steps to complete this use case:
 1. Understand what customer is looking for
 2. Search products using search_nuvemshop_products()
 3. Present top 3 products in card format
-4. Ask: "¿Querés que te muestre más opciones o te ayudo con algo más?"
+4. Close naturally: "Si querés ver otro modelo, avisame."
     `.trim(),
   },
 
@@ -131,7 +131,7 @@ Steps to complete this use case:
 1. Identify which product (from context or ask)
 2. Check variant availability using get_nuvemshop_product_by_id()
 3. Present available sizes with stock status
-4. Ask: "¿Querés que te ayude con algo más sobre este producto?"
+4. Close naturally: "Estoy por acá para lo que necesites."
     `.trim(),
   },
 
@@ -145,7 +145,7 @@ Steps to complete this use case:
 1. Identify which product (from context or ID)
 2. Fetch product details using get_nuvemshop_product_by_id()
 3. Present details (price, description, variants, stock)
-4. Ask: "¿Necesitás saber algo más sobre este producto?"
+4. Close naturally: "Si querés ver otro modelo, avisame."
     `.trim(),
   },
 
@@ -158,7 +158,7 @@ Steps to complete this use case:
 Steps to complete this use case:
 1. Search knowledge base for return policy
 2. Present policy clearly (30 days, conditions)
-3. Ask: "¿Te quedó clara la política de devoluciones?"
+3. Close naturally: "Cualquier cosa, acá estoy 💛"
     `.trim(),
   },
 
@@ -171,7 +171,7 @@ Steps to complete this use case:
 Steps to complete this use case:
 1. Search knowledge base for store hours
 2. Present hours clearly
-3. Ask: "¿Puedo ayudarte con algo más?"
+3. Close naturally: "Estoy por acá para lo que necesites."
     `.trim(),
   },
 
@@ -184,7 +184,7 @@ Steps to complete this use case:
 Steps to complete this use case:
 1. Search knowledge base for contact methods
 2. Present all contact options (email, phone, WhatsApp)
-3. Ask: "¿Necesitás ayuda con algo más?"
+3. Close naturally: "Cualquier cosa, acá estoy 💛"
     `.trim(),
   },
 
@@ -214,7 +214,7 @@ Steps to complete this use case:
 Steps to complete this use case:
 1. Understand what customer needs
 2. Provide appropriate response
-3. Ask: "¿Puedo ayudarte con algo más?"
+3. Close naturally: "Estoy por acá para lo que necesites."
     `.trim(),
   },
 };

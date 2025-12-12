@@ -408,29 +408,30 @@ export class UseCaseDetectionService {
    * Get completion prompt for a use case type
    */
   getCompletionPrompt(useCaseType: UseCaseType): string {
+    // REGLA 13 - Cierres estilo Metta (naturales, sin preguntas genéricas de call center)
     const prompts: Record<UseCaseType, string> = {
       [UseCaseType.CHECK_ORDER_STATUS]:
-        '¿Hay algo más que pueda hacer por vos con este pedido?',
+        'Cualquier cosa, acá estoy 💛',
       [UseCaseType.TRACK_SHIPMENT]:
-        '¿Necesitás ayuda con algo más sobre este envío?',
+        'Estoy por acá para lo que necesites.',
       [UseCaseType.REQUEST_RETURN]:
-        '¿Necesitás ayuda con algo más sobre la devolución?',
+        'Quedate tranqui, lo seguimos por acá.',
       [UseCaseType.VERIFY_PAYMENT]:
-        '¿Hay algo más que pueda ayudarte con el pago?',
+        'Cualquier cosa, acá estoy 💛',
       [UseCaseType.FIND_PRODUCT]:
-        '¿Querés que te muestre más opciones o te ayudo con algo más?',
+        'Si querés ver otro modelo, avisame.',
       [UseCaseType.CHECK_SIZE_AVAILABILITY]:
-        '¿Querés que te ayude con algo más sobre este producto?',
+        'Estoy por acá para lo que necesites.',
       [UseCaseType.GET_PRODUCT_DETAILS]:
-        '¿Necesitás saber algo más sobre este producto?',
+        'Si querés ver otro modelo, avisame.',
       [UseCaseType.LEARN_RETURN_POLICY]:
-        '¿Te quedó clara la política de devoluciones?',
-      [UseCaseType.GET_STORE_HOURS]: '¿Puedo ayudarte con algo más?',
-      [UseCaseType.CONTACT_SUPPORT]: '¿Necesitás ayuda con algo más?',
+        'Cualquier cosa, acá estoy 💛',
+      [UseCaseType.GET_STORE_HOURS]: 'Estoy por acá para lo que necesites.',
+      [UseCaseType.CONTACT_SUPPORT]: 'Cualquier cosa, acá estoy 💛',
       [UseCaseType.GREETING]: '¿En qué puedo ayudarte hoy?',
-      [UseCaseType.OTHER]: '¿Puedo ayudarte con algo más?',
+      [UseCaseType.OTHER]: 'Estoy por acá para lo que necesites.',
     };
 
-    return prompts[useCaseType] || '¿Puedo ayudarte con algo más?';
+    return prompts[useCaseType] || 'Estoy por acá para lo que necesites.';
   }
 }
