@@ -29,5 +29,4 @@ import { IntegrationsModule } from '../integrations/integrations.module';
     UnknownUseCaseService,
   ],
 })
-export class AIModule { }
-
+export class AIModule {}

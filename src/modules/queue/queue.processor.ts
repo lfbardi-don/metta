@@ -19,7 +19,7 @@ export class QueueProcessor implements OnModuleInit {
     private readonly queueService: QueueService,
     private readonly messageBatcher: MessageBatcherService,
     private readonly messageProcessor: MessageProcessorService,
-  ) { }
+  ) {}
 
   async onModuleInit() {
     this.logger.log('Queue processor initialized');
@@ -213,9 +213,9 @@ export class QueueProcessor implements OnModuleInit {
         stack: error.stack,
         payload: payload
           ? {
-            messageId: payload.messageId,
-            conversationId: payload.conversationId,
-          }
+              messageId: payload.messageId,
+              conversationId: payload.conversationId,
+            }
           : 'unknown',
       });
 

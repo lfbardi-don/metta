@@ -78,7 +78,7 @@ export class WorkflowAIService {
     private readonly useCaseDetectionService: UseCaseDetectionService,
     private readonly unknownUseCaseService: UnknownUseCaseService,
     private readonly chatwootService: ChatwootService,
-  ) { }
+  ) {}
 
   /**
    * Process an incoming message through the workflow-based AI system
@@ -181,7 +181,10 @@ export class WorkflowAIService {
     // 3.5. Load customer auth state (24-hour window)
     // Try to get email from PII metadata or previous orders
     let authState: CustomerAuthState | null = null;
-    const customerEmail = this.extractEmailFromContext(context, conversationState);
+    const customerEmail = this.extractEmailFromContext(
+      context,
+      conversationState,
+    );
 
     if (customerEmail) {
       authState = await this.persistenceService.getCustomerAuth(customerEmail);
@@ -225,51 +228,63 @@ export class WorkflowAIService {
     let unknownCaseSaved = false;
     let handoffFromUnknownCase = false;
 
-    if (this.unknownUseCaseService.isUnknownCase(intent || 'OTHERS', classifierConfidence ?? 1.0)) {
+    if (
+      this.unknownUseCaseService.isUnknownCase(
+        intent || 'OTHERS',
+        classifierConfidence ?? 1.0,
+      )
+    ) {
       this.logger.log('Unknown use case detected', {
         conversationId: context.conversationId,
         intent,
         confidence: classifierConfidence,
       });
 
-      const unknownCaseResult = await this.unknownUseCaseService.processUnknownCase({
-        conversationId: context.conversationId,
-        contactId: context.contactId,
-        messageContent: message.content,
-        detectedIntent: intent || 'OTHERS',
-        confidence: classifierConfidence ?? 0,
-        agentResponse: response,
-      });
+      const unknownCaseResult =
+        await this.unknownUseCaseService.processUnknownCase({
+          conversationId: context.conversationId,
+          contactId: context.contactId,
+          messageContent: message.content,
+          detectedIntent: intent || 'OTHERS',
+          confidence: classifierConfidence ?? 0,
+          agentResponse: response,
+        });
 
       unknownCaseSaved = unknownCaseResult.saved;
 
       // Trigger handoff if within business hours
       if (unknownCaseResult.shouldHandoff && !workflowResult.handoffTriggered) {
-        this.logger.log('[HANDOFF] Triggering handoff for unknown use case (within business hours)', {
-          conversationId: context.conversationId,
-          reason: unknownCaseResult.handoffReason,
-        });
+        this.logger.log(
+          '[HANDOFF] Triggering handoff for unknown use case (within business hours)',
+          {
+            conversationId: context.conversationId,
+            reason: unknownCaseResult.handoffReason,
+          },
+        );
 
         try {
-          const handoffResult = await this.chatwootService.assignToAgentWithLabel(
-            context.conversationId,
-            undefined,
-            ['requiere_atencion'], // Unknown cases only get requiere_atencion
-          );
+          const handoffResult =
+            await this.chatwootService.assignToAgentWithLabel(
+              context.conversationId,
+              undefined,
+              ['requiere_atencion'], // Unknown cases only get requiere_atencion
+            );
           handoffFromUnknownCase = handoffResult.success;
           this.logger.log('[HANDOFF] Result:', {
             conversationId: context.conversationId,
             ...handoffResult,
           });
         } catch (error) {
-          this.logger.error('[HANDOFF] FAILED - Could not assign unknown case', {
-            conversationId: context.conversationId,
-            error: error.message,
-          });
+          this.logger.error(
+            '[HANDOFF] FAILED - Could not assign unknown case',
+            {
+              conversationId: context.conversationId,
+              error: error.message,
+            },
+          );
         }
       }
     }
-
 
     // 4.5. Detect or update customer goal based on AI's detected intent
     const goal = this.useCaseDetectionService.detectGoal(
@@ -281,9 +296,12 @@ export class WorkflowAIService {
 
     if (goal) {
       // Normalize Date fields
-      if (typeof goal.startedAt === 'string') goal.startedAt = new Date(goal.startedAt);
-      if (goal.completedAt && typeof goal.completedAt === 'string') goal.completedAt = new Date(goal.completedAt);
-      if (typeof goal.lastActivityAt === 'string') goal.lastActivityAt = new Date(goal.lastActivityAt);
+      if (typeof goal.startedAt === 'string')
+        goal.startedAt = new Date(goal.startedAt);
+      if (goal.completedAt && typeof goal.completedAt === 'string')
+        goal.completedAt = new Date(goal.completedAt);
+      if (typeof goal.lastActivityAt === 'string')
+        goal.lastActivityAt = new Date(goal.lastActivityAt);
 
       this.logger.log(`Goal detected/updated: ${goal.type}`, {
         goalId: goal.goalId,
@@ -339,9 +357,10 @@ export class WorkflowAIService {
     }
 
     // 6. Reload conversation state to get LATEST use case state (after save)
-    const finalConversationState = await this.persistenceService.getConversationState(
-      context.conversationId,
-    );
+    const finalConversationState =
+      await this.persistenceService.getConversationState(
+        context.conversationId,
+      );
 
     return {
       response: finalResponse,
@@ -349,13 +368,19 @@ export class WorkflowAIService {
       intent,
       thinking,
       metadata: {
-        state: finalConversationState?.state || { products: [], useCases: { activeCases: [], completedCases: [] } },
+        state: finalConversationState?.state || {
+          products: [],
+          useCases: { activeCases: [], completedCases: [] },
+        },
       },
       initialState, // State before processing
       classifierConfidence,
       unknownCaseSaved,
-      handoffTriggered: workflowResult.handoffTriggered || handoffFromUnknownCase,
-      handoffReason: workflowResult.handoffReason || (handoffFromUnknownCase ? 'Caso no mapeado' : undefined),
+      handoffTriggered:
+        workflowResult.handoffTriggered || handoffFromUnknownCase,
+      handoffReason:
+        workflowResult.handoffReason ||
+        (handoffFromUnknownCase ? 'Caso no mapeado' : undefined),
     };
   }
 
@@ -451,10 +476,11 @@ export class WorkflowAIService {
       });
 
       // 6. Detect order presentation context
-      const orderQueryContext = this.orderPresentationService.detectQueryContext(
-        message,
-        conversationState || null,
-      );
+      const orderQueryContext =
+        this.orderPresentationService.detectQueryContext(
+          message,
+          conversationState || null,
+        );
 
       const orderPresentationMode =
         this.orderPresentationService.determinePresentationMode(
@@ -481,35 +507,49 @@ export class WorkflowAIService {
         conversationId: string,
         reason?: string,
       ) => {
-        this.logger.log('[HANDOFF] ===== HUMAN HANDOFF TRIGGERED (via classifier) =====', {
-          conversationId,
-          reason,
-          timestamp: new Date().toISOString(),
-        });
+        this.logger.log(
+          '[HANDOFF] ===== HUMAN HANDOFF TRIGGERED (via classifier) =====',
+          {
+            conversationId,
+            reason,
+            timestamp: new Date().toISOString(),
+          },
+        );
 
         try {
           // Determine labels based on reason - exchange gets both labels
-          const isExchange = reason?.toLowerCase().includes('exchange') ||
+          const isExchange =
+            reason?.toLowerCase().includes('exchange') ||
             reason?.toLowerCase().includes('cambio');
           const labels = isExchange
             ? ['requiere_atencion', 'cambio']
             : ['requiere_atencion'];
 
-          this.logger.log('[HANDOFF] Calling chatwootService.assignToAgentWithLabel...', {
+          this.logger.log(
+            '[HANDOFF] Calling chatwootService.assignToAgentWithLabel...',
+            {
+              conversationId,
+              labels,
+            },
+          );
+          const result = await this.chatwootService.assignToAgentWithLabel(
             conversationId,
+            undefined,
             labels,
-          });
-          const result = await this.chatwootService.assignToAgentWithLabel(conversationId, undefined, labels);
+          );
           this.logger.log('[HANDOFF] Result:', {
             conversationId,
             ...result,
           });
         } catch (error) {
-          this.logger.error('[HANDOFF] FAILED - Could not assign conversation', {
-            conversationId,
-            error: error.message,
-            stack: error.stack,
-          });
+          this.logger.error(
+            '[HANDOFF] FAILED - Could not assign conversation',
+            {
+              conversationId,
+              error: error.message,
+              stack: error.stack,
+            },
+          );
           // Don't throw - we still want to return the handoff message to the customer
         }
       };
@@ -555,14 +595,26 @@ export class WorkflowAIService {
       let productMentions: ProductMention[] = [];
 
       if (result.newItems && result.newItems.length > 0) {
-        productMentions = this.productExtractionService.extractProductsFromToolCalls(result.newItems);
+        productMentions =
+          this.productExtractionService.extractProductsFromToolCalls(
+            result.newItems,
+          );
       }
 
       // If no tool calls, check if LLM returned products in structured output
       // (Note: These might lack IDs if not from tools, so we treat them carefully)
-      if (productMentions.length === 0 && output.products && output.products.length > 0) {
-        productMentions = this.productExtractionService.extractProductsFromStructuredOutput(output.products);
-        this.logger.log(`Using structured output products: ${productMentions.length}`);
+      if (
+        productMentions.length === 0 &&
+        output.products &&
+        output.products.length > 0
+      ) {
+        productMentions =
+          this.productExtractionService.extractProductsFromStructuredOutput(
+            output.products,
+          );
+        this.logger.log(
+          `Using structured output products: ${productMentions.length}`,
+        );
       }
 
       // Update conversation state with new product mentions
@@ -574,7 +626,10 @@ export class WorkflowAIService {
       }
 
       // Extract customer email for order tracking
-      const customerEmail = this.extractEmailFromContext(context, conversationState || null);
+      const customerEmail = this.extractEmailFromContext(
+        context,
+        conversationState || null,
+      );
 
       // Extract order mentions from tool calls and save to state
       if (result.newItems && result.newItems.length > 0) {
@@ -588,55 +643,78 @@ export class WorkflowAIService {
             context.conversationId,
             orderMentions,
           );
-          this.logger.log(`Saved ${orderMentions.length} order mention(s) to conversation state`);
+          this.logger.log(
+            `Saved ${orderMentions.length} order mention(s) to conversation state`,
+          );
         }
 
         // Detect and persist authentication success (24-hour DB session)
-        const authResult = this.detectAuthSuccess(result.newItems, customerEmail);
+        const authResult = this.detectAuthSuccess(
+          result.newItems,
+          customerEmail,
+        );
         if (authResult.success && authResult.email) {
           await this.persistenceService.setCustomerAuth(
             authResult.email,
             context.conversationId,
           );
-          this.logger.log('Customer authentication saved to DB (24-hour session)', {
-            email: authResult.email,
-            conversationId: context.conversationId,
-          });
+          this.logger.log(
+            'Customer authentication saved to DB (24-hour session)',
+            {
+              email: authResult.email,
+              conversationId: context.conversationId,
+            },
+          );
         }
 
         // Detect transfer_to_human tool call from specialist agents
         const toolHandoff = this.detectTransferToHumanToolCall(result.newItems);
         if (toolHandoff.triggered && context.conversationId) {
-          this.logger.log('[HANDOFF] ===== HUMAN HANDOFF TRIGGERED (via tool call) =====', {
-            conversationId: context.conversationId,
-            reason: toolHandoff.reason,
-            summary: toolHandoff.summary,
-            timestamp: new Date().toISOString(),
-          });
+          this.logger.log(
+            '[HANDOFF] ===== HUMAN HANDOFF TRIGGERED (via tool call) =====',
+            {
+              conversationId: context.conversationId,
+              reason: toolHandoff.reason,
+              summary: toolHandoff.summary,
+              timestamp: new Date().toISOString(),
+            },
+          );
 
           try {
             // Determine labels based on reason - exchange gets both labels
-            const isExchange = toolHandoff.reason?.toLowerCase().includes('exchange') ||
+            const isExchange =
+              toolHandoff.reason?.toLowerCase().includes('exchange') ||
               toolHandoff.reason?.toLowerCase().includes('cambio');
             const labels = isExchange
               ? ['requiere_atencion', 'cambio']
               : ['requiere_atencion'];
 
-            this.logger.log('[HANDOFF] Calling chatwootService.assignToAgentWithLabel...', {
-              conversationId: context.conversationId,
-              labels,
-            });
-            const handoffResult = await this.chatwootService.assignToAgentWithLabel(context.conversationId, undefined, labels);
+            this.logger.log(
+              '[HANDOFF] Calling chatwootService.assignToAgentWithLabel...',
+              {
+                conversationId: context.conversationId,
+                labels,
+              },
+            );
+            const handoffResult =
+              await this.chatwootService.assignToAgentWithLabel(
+                context.conversationId,
+                undefined,
+                labels,
+              );
             this.logger.log('[HANDOFF] Result:', {
               conversationId: context.conversationId,
               ...handoffResult,
             });
           } catch (error) {
-            this.logger.error('[HANDOFF] FAILED - Could not assign conversation', {
-              conversationId: context.conversationId,
-              error: error.message,
-              stack: error.stack,
-            });
+            this.logger.error(
+              '[HANDOFF] FAILED - Could not assign conversation',
+              {
+                conversationId: context.conversationId,
+                error: error.message,
+                stack: error.stack,
+              },
+            );
             // Don't throw - we still want to return the response to the customer
           }
         }
@@ -649,12 +727,14 @@ export class WorkflowAIService {
         );
 
       // Check if handoff was triggered (either by classifier or by tool call)
-      const workflowResult = result as WorkflowResult;
+      const workflowResult = result;
       const toolHandoffResult = result.newItems
         ? this.detectTransferToHumanToolCall(result.newItems)
         : { triggered: false, reason: undefined };
-      const handoffTriggered = workflowResult.handoffTriggered || toolHandoffResult.triggered;
-      const handoffReason = workflowResult.handoffReason || toolHandoffResult.reason;
+      const handoffTriggered =
+        workflowResult.handoffTriggered || toolHandoffResult.triggered;
+      const handoffReason =
+        workflowResult.handoffReason || toolHandoffResult.reason;
 
       if (handoffTriggered) {
         this.logger.log('Human handoff completed', {
@@ -669,7 +749,10 @@ export class WorkflowAIService {
         intent,
         thinking,
         metadata: {
-          state: updatedConversationState?.state || { products: [], orders: [] },
+          state: updatedConversationState?.state || {
+            products: [],
+            orders: [],
+          },
         },
         handoffTriggered,
         handoffReason,
@@ -679,12 +762,6 @@ export class WorkflowAIService {
       throw new Error(`Workflow AI Service Error: ${error.message}`);
     }
   }
-
-
-
-
-
-
 
   /**
    * Update use case progress based on agent response
@@ -763,10 +840,7 @@ export class WorkflowAIService {
   /**
    * Generate a simple, human-readable summary
    */
-  private generateSimpleSummary(
-    goal: CustomerGoal,
-    response: string,
-  ): string {
+  private generateSimpleSummary(goal: CustomerGoal, response: string): string {
     const summaries: Record<GoalType, string> = {
       [GoalType.ORDER_INQUIRY]: `Customer inquiring about order ${goal.context?.orderId || 'details'}`,
       [GoalType.PRODUCT_SEARCH]: `Customer searching for products: ${goal.context?.topic || 'general'}`,
@@ -868,16 +942,23 @@ export class WorkflowAIService {
 
     for (const item of newItems) {
       // Look for tool call results with order data
-      if (item.type === 'tool_call_output' || item.type === 'function_call_output') {
+      if (
+        item.type === 'tool_call_output' ||
+        item.type === 'function_call_output'
+      ) {
         try {
-          const output = typeof item.output === 'string'
-            ? JSON.parse(item.output)
-            : item.output;
+          const output =
+            typeof item.output === 'string'
+              ? JSON.parse(item.output)
+              : item.output;
 
           const toolName = (item.name || '').toLowerCase();
 
           // Handle get_last_order response (new format with fulfillments)
-          if (toolName.includes('get_last_order') || toolName.includes('last_order')) {
+          if (
+            toolName.includes('get_last_order') ||
+            toolName.includes('last_order')
+          ) {
             if (output?.id || output?.orderNumber) {
               const mention: OrderMention = {
                 orderId: String(output.id),
@@ -895,7 +976,9 @@ export class WorkflowAIService {
             const order = output.order || output;
             const mention: OrderMention = {
               orderId: String(order.id),
-              orderNumber: String(order.number || order.orderNumber || order.id),
+              orderNumber: String(
+                order.number || order.orderNumber || order.id,
+              ),
               customerEmail: customerEmail || order.customer?.email || '',
               mentionedAt: new Date(),
               context: this.detectOrderContext(item.name || ''),
@@ -905,12 +988,17 @@ export class WorkflowAIService {
           }
         } catch (e) {
           // Not JSON or invalid structure, skip
-          this.logger.debug('Could not parse tool output for order extraction', { error: e.message });
+          this.logger.debug(
+            'Could not parse tool output for order extraction',
+            { error: e.message },
+          );
         }
       }
     }
 
-    this.logger.log(`Extracted ${orderMentions.length} order mention(s) from tool calls`);
+    this.logger.log(
+      `Extracted ${orderMentions.length} order mention(s) from tool calls`,
+    );
     return orderMentions;
   }
 
@@ -919,7 +1007,10 @@ export class WorkflowAIService {
    */
   private detectOrderContextFromResponse(order: any): OrderMention['context'] {
     // If the order has fulfillments with tracking, it's likely a tracking inquiry
-    if (order.fulfillments?.length > 0 && order.fulfillments.some((f: any) => f.trackingCode)) {
+    if (
+      order.fulfillments?.length > 0 &&
+      order.fulfillments.some((f: any) => f.trackingCode)
+    ) {
       return 'tracking';
     }
     // If payment status is pending or failed, could be payment inquiry
@@ -958,15 +1049,19 @@ export class WorkflowAIService {
     }
 
     for (const item of newItems) {
-      if (item.type === 'tool_call_output' || item.type === 'function_call_output') {
+      if (
+        item.type === 'tool_call_output' ||
+        item.type === 'function_call_output'
+      ) {
         const toolName = (item.name || '').toLowerCase();
 
         // Check for verify_dni or similar auth tools
         if (toolName.includes('verify') || toolName.includes('auth')) {
           try {
-            const output = typeof item.output === 'string'
-              ? JSON.parse(item.output)
-              : item.output;
+            const output =
+              typeof item.output === 'string'
+                ? JSON.parse(item.output)
+                : item.output;
 
             // Check for success indicators
             if (
@@ -975,7 +1070,8 @@ export class WorkflowAIService {
               output?.authenticated === true
             ) {
               // Try to extract email from the auth response
-              const authEmail = output?.email || output?.customer?.email || customerEmail;
+              const authEmail =
+                output?.email || output?.customer?.email || customerEmail;
               this.logger.log('Authentication success detected', {
                 toolName,
                 email: authEmail,
@@ -996,20 +1092,28 @@ export class WorkflowAIService {
    * Detect transfer_to_human tool call from specialist agents
    * Returns whether handoff was triggered and the reason
    */
-  private detectTransferToHumanToolCall(
-    newItems: any[],
-  ): { triggered: boolean; reason?: string; summary?: string } {
+  private detectTransferToHumanToolCall(newItems: any[]): {
+    triggered: boolean;
+    reason?: string;
+    summary?: string;
+  } {
     if (!newItems || newItems.length === 0) {
       return { triggered: false };
     }
 
     for (const item of newItems) {
       // Check for tool call outputs
-      if (item.type === 'tool_call_output' || item.type === 'function_call_output') {
+      if (
+        item.type === 'tool_call_output' ||
+        item.type === 'function_call_output'
+      ) {
         const toolName = (item.name || '').toLowerCase();
 
         // Check for transfer_to_human tool
-        if (toolName.includes('transfer_to_human') || toolName.includes('handoff')) {
+        if (
+          toolName.includes('transfer_to_human') ||
+          toolName.includes('handoff')
+        ) {
           try {
             const output =
               typeof item.output === 'string'
@@ -1037,8 +1141,13 @@ export class WorkflowAIService {
       // Also check for tool calls (not outputs) in case the tool name is there
       if (item.type === 'tool_call' || item.type === 'function_call') {
         const toolName = (item.name || item.function?.name || '').toLowerCase();
-        if (toolName.includes('transfer_to_human') || toolName.includes('handoff')) {
-          this.logger.log('transfer_to_human tool call detected (from call, not output)');
+        if (
+          toolName.includes('transfer_to_human') ||
+          toolName.includes('handoff')
+        ) {
+          this.logger.log(
+            'transfer_to_human tool call detected (from call, not output)',
+          );
           return {
             triggered: true,
             reason: 'Transfer requested by agent',

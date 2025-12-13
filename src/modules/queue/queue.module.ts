@@ -32,4 +32,4 @@ import { IntegrationsModule } from '../integrations/integrations.module';
   ],
   exports: [QueueService, QueueProcessor, MessageProcessorService],
 })
-export class QueueModule { }
+export class QueueModule {}

@@ -81,14 +81,14 @@ export enum GoalType {
  * PASO 6: Derivar a humano (ÚNICO momento de derivación)
  */
 export type ExchangeStep =
-  | 'identify_customer'    // PASO 0: Pedir nombre + número de pedido
-  | 'validate_order'       // PASO 0b: Consultar pedido + explicar política
-  | 'select_product'       // PASO 1: Cuál producto quiere cambiar
-  | 'get_new_product'      // PASO 2: Por qué talle/color
-  | 'check_stock'          // PASO 3: Verificar stock
-  | 'confirm_exchange'     // PASO 4: Confirmar producto final
-  | 'get_address'          // PASO 5: Sucursal para DEVOLUCIÓN
-  | 'ready_for_handoff';   // PASO 6: Derivar a humano
+  | 'identify_customer' // PASO 0: Pedir nombre + número de pedido
+  | 'validate_order' // PASO 0b: Consultar pedido + explicar política
+  | 'select_product' // PASO 1: Cuál producto quiere cambiar
+  | 'get_new_product' // PASO 2: Por qué talle/color
+  | 'check_stock' // PASO 3: Verificar stock
+  | 'confirm_exchange' // PASO 4: Confirmar producto final
+  | 'get_address' // PASO 5: Sucursal para DEVOLUCIÓN
+  | 'ready_for_handoff'; // PASO 6: Derivar a humano
 
 export interface ExchangeProductInfo {
   name?: string;

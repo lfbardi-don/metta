@@ -267,7 +267,9 @@ export class ChatwootService {
   isWithinBusinessHours(): boolean {
     const now = new Date();
     const argentinaTime = new Date(
-      now.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }),
+      now.toLocaleString('en-US', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+      }),
     );
 
     const dayOfWeek = argentinaTime.getDay();
@@ -285,7 +287,7 @@ export class ChatwootService {
   /**
    * Assign a conversation to a specific agent and add labels for human handoff
    * Only works during business hours (9-17 L-V Argentina)
-   * 
+   *
    * @param conversationId - The Chatwoot conversation ID
    * @param agentId - The agent ID to assign (optional, uses CHATWOOT_HANDOFF_AGENT_ID if not provided)
    * @param labels - The labels to add (defaults to ['requiere_atencion', 'cambio'])
@@ -295,17 +297,24 @@ export class ChatwootService {
     conversationId: string,
     agentId?: number,
     labels?: string[],
-  ): Promise<{ success: boolean; withinBusinessHours: boolean; message: string }> {
+  ): Promise<{
+    success: boolean;
+    withinBusinessHours: boolean;
+    message: string;
+  }> {
     // Check business hours first
     const withinBusinessHours = this.isWithinBusinessHours();
 
     if (!withinBusinessHours) {
-      this.logger.log('[HANDOFF] Outside business hours - handoff not executed', {
-        conversationId,
-        currentTimeArgentina: new Date().toLocaleString('es-AR', {
-          timeZone: 'America/Argentina/Buenos_Aires',
-        }),
-      });
+      this.logger.log(
+        '[HANDOFF] Outside business hours - handoff not executed',
+        {
+          conversationId,
+          currentTimeArgentina: new Date().toLocaleString('es-AR', {
+            timeZone: 'America/Argentina/Buenos_Aires',
+          }),
+        },
+      );
 
       return {
         success: false,
@@ -318,9 +327,7 @@ export class ChatwootService {
       agentId ||
       this.configService.get<number>('CHATWOOT_HANDOFF_AGENT_ID', 150903);
 
-    const handoffLabels =
-      labels ||
-      ['requiere_atencion'];
+    const handoffLabels = labels || ['requiere_atencion'];
 
     const apiUrl = this.configService.get<string>('CHATWOOT_API_URL', '');
 

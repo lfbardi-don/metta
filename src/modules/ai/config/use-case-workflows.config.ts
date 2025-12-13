@@ -21,11 +21,7 @@ export interface UseCaseWorkflow {
 export const USE_CASE_WORKFLOWS: Record<UseCaseType, UseCaseWorkflow> = {
   [UseCaseType.CHECK_ORDER_STATUS]: {
     type: UseCaseType.CHECK_ORDER_STATUS,
-    requiredSteps: [
-      'authenticate',
-      'fetch_status',
-      'present_status',
-    ],
+    requiredSteps: ['authenticate', 'fetch_status', 'present_status'],
     allowedAgents: ['Orders Agent'],
     completionCriteria: 'Customer has received order status information',
     instructions: `
@@ -40,11 +36,7 @@ Note: Only the most recent order is available. For order history, direct to mett
 
   [UseCaseType.TRACK_SHIPMENT]: {
     type: UseCaseType.TRACK_SHIPMENT,
-    requiredSteps: [
-      'authenticate',
-      'fetch_tracking',
-      'present_tracking',
-    ],
+    requiredSteps: ['authenticate', 'fetch_tracking', 'present_tracking'],
     allowedAgents: ['Orders Agent'],
     completionCriteria: 'Customer has received tracking information',
     instructions: `
@@ -79,11 +71,7 @@ Steps to complete this use case:
 
   [UseCaseType.VERIFY_PAYMENT]: {
     type: UseCaseType.VERIFY_PAYMENT,
-    requiredSteps: [
-      'authenticate',
-      'fetch_payment',
-      'present_payment',
-    ],
+    requiredSteps: ['authenticate', 'fetch_payment', 'present_payment'],
     allowedAgents: ['Orders Agent'],
     completionCriteria: 'Customer has received payment information',
     instructions: `

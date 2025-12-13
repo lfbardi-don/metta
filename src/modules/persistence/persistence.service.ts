@@ -221,7 +221,10 @@ export class PersistenceService {
       if (!state) return null;
 
       // Prisma automatically deserializes JSON - just need type assertion
-      const stateData = (state.state || { products: [], orders: [] }) as unknown as {
+      const stateData = (state.state || {
+        products: [],
+        orders: [],
+      }) as unknown as {
         products: ProductMention[];
         orders: OrderMention[];
       };
@@ -354,11 +357,11 @@ export class PersistenceService {
       await this.prisma.conversationState.upsert({
         where: { conversationId },
         update: {
-          state: newState as any,
+          state: newState,
         },
         create: {
           conversationId,
-          state: newState as any,
+          state: newState,
         },
       });
 
@@ -389,8 +392,12 @@ export class PersistenceService {
       const currentState = existingState?.state || { products: [], orders: [] };
 
       // If setting a new goal and there's an active one, move it to recent
-      let recentGoals = ('recentGoals' in currentState ? currentState.recentGoals : undefined) || [];
-      const activeGoal = 'activeGoal' in currentState ? currentState.activeGoal : null;
+      let recentGoals =
+        ('recentGoals' in currentState
+          ? currentState.recentGoals
+          : undefined) || [];
+      const activeGoal =
+        'activeGoal' in currentState ? currentState.activeGoal : null;
       if (goal && activeGoal) {
         const completedGoal = {
           ...activeGoal,
@@ -545,10 +552,7 @@ export class PersistenceService {
    * @param conversationId - The conversation ID
    * @param summary - Human-readable summary (max 200 chars recommended)
    */
-  async updateSummary(
-    conversationId: string,
-    summary: string,
-  ): Promise<void> {
+  async updateSummary(conversationId: string, summary: string): Promise<void> {
     try {
       await this.updateFullConversationState(conversationId, {
         summary: summary.substring(0, 200), // Enforce max length
@@ -572,10 +576,7 @@ export class PersistenceService {
    * @param conversationId - The conversation ID
    * @param reason - Reason for escalation
    */
-  async setEscalation(
-    conversationId: string,
-    reason: string,
-  ): Promise<void> {
+  async setEscalation(conversationId: string, reason: string): Promise<void> {
     try {
       await this.updateFullConversationState(conversationId, {
         needsHumanHelp: true,
@@ -680,10 +681,7 @@ export class PersistenceService {
    * @param email - Customer email address
    * @param conversationId - Conversation where auth was established
    */
-  async setCustomerAuth(
-    email: string,
-    conversationId: string,
-  ): Promise<void> {
+  async setCustomerAuth(email: string, conversationId: string): Promise<void> {
     try {
       const now = new Date();
       const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours
@@ -794,11 +792,11 @@ export class PersistenceService {
       await this.prisma.conversationState.upsert({
         where: { conversationId },
         update: {
-          state: newState as any,
+          state: newState,
         },
         create: {
           conversationId,
-          state: newState as any,
+          state: newState,
         },
       });
 

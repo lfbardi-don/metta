@@ -1,8 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import {
-  ConversationState,
-  OrderMention,
-} from '../../common/interfaces';
+import { ConversationState, OrderMention } from '../../common/interfaces';
 import {
   OrderPresentationMode,
   getOrderPresentationInstructions,
@@ -114,7 +111,9 @@ export class OrderPresentationService {
     // ORDER_LIST - Now returns FULL_ORDER since we can only show one order
     // The API only supports get_last_order (no order history)
     if (type === 'ORDER_LIST') {
-      this.logger.log('Presentation mode: FULL_ORDER (order list request - limited to last order only)');
+      this.logger.log(
+        'Presentation mode: FULL_ORDER (order list request - limited to last order only)',
+      );
       return 'FULL_ORDER';
     }
 
@@ -384,7 +383,10 @@ export class OrderPresentationService {
 
     if (referencePatterns.some((pattern) => pattern.test(messageLower))) {
       // If generic reference, use the most recently mentioned order
-      if (mentionedOrders.length === 0 && conversationState.state.orders.length > 0) {
+      if (
+        mentionedOrders.length === 0 &&
+        conversationState.state.orders.length > 0
+      ) {
         const mostRecent = conversationState.state.orders.reduce(
           (latest, current) => {
             const latestTime = new Date(latest.mentionedAt).getTime();

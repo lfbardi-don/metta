@@ -63,7 +63,9 @@ export class UseCaseDetectionService {
           goalType === GoalType.PRODUCT_QUESTION);
 
       if (isSameType || isProductRelated) {
-        this.logger.log(`Continuing existing goal: ${existingGoal.type} (detected as ${goalType})`);
+        this.logger.log(
+          `Continuing existing goal: ${existingGoal.type} (detected as ${goalType})`,
+        );
         return {
           ...existingGoal,
           lastActivityAt: new Date(),
@@ -155,7 +157,10 @@ export class UseCaseDetectionService {
       goalType === GoalType.PRODUCT_SEARCH ||
       goalType === GoalType.PRODUCT_QUESTION
     ) {
-      context.topic = goalType === GoalType.PRODUCT_SEARCH ? 'product_search' : 'product_details';
+      context.topic =
+        goalType === GoalType.PRODUCT_SEARCH
+          ? 'product_search'
+          : 'product_details';
       // Product IDs will be added dynamically as conversation progresses
       context.productIds = [];
     }
@@ -410,22 +415,15 @@ export class UseCaseDetectionService {
   getCompletionPrompt(useCaseType: UseCaseType): string {
     // REGLA 13 - Cierres estilo Metta (naturales, sin preguntas genéricas de call center)
     const prompts: Record<UseCaseType, string> = {
-      [UseCaseType.CHECK_ORDER_STATUS]:
-        'Cualquier cosa, acá estoy 💛',
-      [UseCaseType.TRACK_SHIPMENT]:
-        'Estoy por acá para lo que necesites.',
-      [UseCaseType.REQUEST_RETURN]:
-        'Quedate tranqui, lo seguimos por acá.',
-      [UseCaseType.VERIFY_PAYMENT]:
-        'Cualquier cosa, acá estoy 💛',
-      [UseCaseType.FIND_PRODUCT]:
-        'Si querés ver otro modelo, avisame.',
+      [UseCaseType.CHECK_ORDER_STATUS]: 'Cualquier cosa, acá estoy 💛',
+      [UseCaseType.TRACK_SHIPMENT]: 'Estoy por acá para lo que necesites.',
+      [UseCaseType.REQUEST_RETURN]: 'Quedate tranqui, lo seguimos por acá.',
+      [UseCaseType.VERIFY_PAYMENT]: 'Cualquier cosa, acá estoy 💛',
+      [UseCaseType.FIND_PRODUCT]: 'Si querés ver otro modelo, avisame.',
       [UseCaseType.CHECK_SIZE_AVAILABILITY]:
         'Estoy por acá para lo que necesites.',
-      [UseCaseType.GET_PRODUCT_DETAILS]:
-        'Si querés ver otro modelo, avisame.',
-      [UseCaseType.LEARN_RETURN_POLICY]:
-        'Cualquier cosa, acá estoy 💛',
+      [UseCaseType.GET_PRODUCT_DETAILS]: 'Si querés ver otro modelo, avisame.',
+      [UseCaseType.LEARN_RETURN_POLICY]: 'Cualquier cosa, acá estoy 💛',
       [UseCaseType.GET_STORE_HOURS]: 'Estoy por acá para lo que necesites.',
       [UseCaseType.CONTACT_SUPPORT]: 'Cualquier cosa, acá estoy 💛',
       [UseCaseType.GREETING]: '¿En qué puedo ayudarte hoy?',
