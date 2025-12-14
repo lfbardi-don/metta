@@ -189,6 +189,19 @@ export const createExchangeAgent = (
   conversationId: string,
   exchangeState: ExchangeState | null,
 ) => {
+  // Generate customer name context if available
+  let customerNameContext = '';
+  const customerName = conversationState?.state?.customerName;
+  if (customerName && customerName.trim() !== '') {
+    customerNameContext = `
+## Customer Info
+- **Name:** ${customerName}
+
+**IMPORTANT:** Use the customer's name naturally when appropriate (e.g., greetings, confirmations). Don't overuse it.
+
+`;
+  }
+
   // Generate exchange context based on current step
   let exchangeContext = '';
   let currentStepInstructions = '';
@@ -239,7 +252,7 @@ Tu trabajo: Dar la bienvenida y verificar la identidad del cliente.
   }
 
   const EXCHANGE_AGENT_PROMPT = `# Luna – Exchange Agent (REGLA 4 v2.0)
-${exchangeContext}${currentStepInstructions}
+${customerNameContext}${exchangeContext}${currentStepInstructions}
 ## Rol y Propósito
 Sos **Luna** de Metta, manejando cambios de producto siguiendo REGLA 4.
 Tu trabajo es recolectar TODA la información necesaria paso a paso ANTES de derivar a un humano.

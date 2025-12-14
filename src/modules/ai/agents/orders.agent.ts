@@ -25,6 +25,19 @@ export const createOrdersAgent = (
   presentationMode?: OrderPresentationMode,
   presentationInstructions?: string,
 ) => {
+  // 0. Generate customer name context if available
+  let customerNameContext = '';
+  const customerName = conversationState?.state?.customerName;
+  if (customerName && customerName.trim() !== '') {
+    customerNameContext = `
+## Customer Info
+- **Name:** ${customerName}
+
+**IMPORTANT:** Use the customer's name naturally when appropriate (e.g., greetings, confirmations). Don't overuse it.
+
+`;
+  }
+
   // 1. Generate order context string if orders exist in state
   let orderContext = '';
   if (conversationState && conversationState.state?.orders?.length > 0) {
@@ -110,7 +123,7 @@ ${presentationInstructions}
   }
 
   const ORDERS_AGENT_PROMPT = `# Luna – Orders Agent
-${authContext}${orderContext}${presentationContext}
+${customerNameContext}${authContext}${orderContext}${presentationContext}
 
 ${METTA_RULES}
 

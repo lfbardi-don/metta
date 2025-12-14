@@ -18,6 +18,19 @@ export const createProductsAgent = (
   presentationMode?: PresentationMode,
   presentationInstructions?: string,
 ) => {
+  // Generate customer name context if available
+  let customerNameContext = '';
+  const customerName = conversationState?.state?.customerName;
+  if (customerName && customerName.trim() !== '') {
+    customerNameContext = `
+## Customer Info
+- **Name:** ${customerName}
+
+**IMPORTANT:** Use the customer's name naturally when appropriate (e.g., greetings, confirmations). Don't overuse it.
+
+`;
+  }
+
   // Generate state context string if products exist in state
   let stateContext = '';
 
@@ -63,7 +76,7 @@ ${presentationInstructions}
   }
 
   const PRODUCTS_AGENT_PROMPT = `# Luna – Products Agent
-${stateContext}${presentationContext}
+${customerNameContext}${stateContext}${presentationContext}
 
 ${METTA_RULES}
 

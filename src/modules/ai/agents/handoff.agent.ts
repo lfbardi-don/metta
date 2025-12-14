@@ -1,10 +1,32 @@
 import { Agent } from '@openai/agents';
+import { ConversationState } from '../../../common/interfaces';
 import { AIResponseSchema } from '../schemas/ai-response.schema';
 
 /**
- * Handoff Agent Prompt
+ * Generate Handoff Agent with conversation state context
+ *
+ * @param conversationState - Current conversation state (for customer name)
+ * @returns Agent configured with personalized handoff message
  */
-const HANDOFF_PROMPT = `You are Luna from Metta, and your job is to smoothly transition the customer to a human agent.
+export const createHandoffAgent = (
+  conversationState: ConversationState | null,
+) => {
+  // Generate customer name context if available
+  let customerNameContext = '';
+  const customerName = conversationState?.state?.customerName;
+  if (customerName && customerName.trim() !== '') {
+    customerNameContext = `
+## Customer Info
+- **Name:** ${customerName}
+
+**IMPORTANT:** Use the customer's name when saying goodbye or transitioning them. It makes the handoff feel more personal.
+
+`;
+  }
+
+  const HANDOFF_PROMPT = `# Luna – Handoff Agent
+${customerNameContext}
+You are Luna from Metta, and your job is to smoothly transition the customer to a human agent.
 
 ## Your Role
 You acknowledge the customer's concern and let them know a human team member will help them.
@@ -32,20 +54,21 @@ Keep your response to 1-2 short sentences. Be warm but concise.
 ## Output Format
 You must ALWAYS set the user_intent field to "HUMAN_HANDOFF" in your response.`;
 
+  return new Agent({
+    name: 'Handoff Agent',
+    instructions: HANDOFF_PROMPT,
+    model: 'gpt-4.1-mini',
+    outputType: AIResponseSchema,
+    modelSettings: {
+      temperature: 0.6,
+      topP: 1,
+      maxTokens: 256,
+      store: true,
+    },
+  });
+};
+
 /**
- * Handoff Agent
- *
- * Handles transfer to human support with a smooth transition message
+ * @deprecated Use createHandoffAgent instead
  */
-export const handoffAgent = new Agent({
-  name: 'Handoff Agent',
-  instructions: HANDOFF_PROMPT,
-  model: 'gpt-4.1-mini',
-  outputType: AIResponseSchema,
-  modelSettings: {
-    temperature: 0.6,
-    topP: 1,
-    maxTokens: 256,
-    store: true,
-  },
-});
+export const handoffAgent = createHandoffAgent(null);

@@ -30,9 +30,9 @@ import { AgentInputItem, Runner, withTrace } from '@openai/agents';
 // Import agents
 import {
   mettaClassifier,
-  faqAgent,
-  greetingsAgent,
-  handoffAgent,
+  createFaqAgent,
+  createGreetingsAgent,
+  createHandoffAgent,
   createOrdersAgent,
   createProductsAgent,
   createExchangeAgent,
@@ -134,6 +134,7 @@ Continue helping the customer achieve their goal naturally.
         return await handleFaqIntent(
           runner,
           conversationHistory,
+          state,
           classifierConfidence,
         );
 
@@ -150,6 +151,7 @@ Continue helping the customer achieve their goal naturally.
         return await handleHandoffIntent(
           runner,
           conversationHistory,
+          state,
           workflow,
           classifierResult.finalOutput.explanation,
           classifierConfidence,
@@ -159,6 +161,7 @@ Continue helping the customer achieve their goal naturally.
         return await handleGreetingsIntent(
           runner,
           conversationHistory,
+          state,
           classifierConfidence,
         );
     }
@@ -229,8 +232,10 @@ async function handleProductsIntent(
 async function handleFaqIntent(
   runner: Runner,
   conversationHistory: AgentInputItem[],
+  state: { conversationState: any },
   classifierConfidence: number,
 ): Promise<WorkflowResult> {
+  const faqAgent = createFaqAgent(state.conversationState);
   const result = await runner.run(faqAgent, [...conversationHistory]);
   if (!result.finalOutput) {
     throw new Error('FAQ agent result is undefined');
@@ -334,10 +339,12 @@ async function handleExchangeIntent(
 async function handleHandoffIntent(
   runner: Runner,
   conversationHistory: AgentInputItem[],
+  state: { conversationState: any },
   workflow: WorkflowInput,
   explanation: string,
   classifierConfidence: number,
 ): Promise<WorkflowResult> {
+  const handoffAgent = createHandoffAgent(state.conversationState);
   const result = await runner.run(handoffAgent, [...conversationHistory]);
   if (!result.finalOutput) {
     throw new Error('Handoff agent result is undefined');
@@ -363,8 +370,10 @@ async function handleHandoffIntent(
 async function handleGreetingsIntent(
   runner: Runner,
   conversationHistory: AgentInputItem[],
+  state: { conversationState: any },
   classifierConfidence: number,
 ): Promise<WorkflowResult> {
+  const greetingsAgent = createGreetingsAgent(state.conversationState);
   const result = await runner.run(greetingsAgent, [...conversationHistory]);
   if (!result.finalOutput) {
     throw new Error('Greetings agent result is undefined');

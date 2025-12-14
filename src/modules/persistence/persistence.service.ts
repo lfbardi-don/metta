@@ -20,7 +20,7 @@ import { PrismaService } from './prisma.service';
 export class PersistenceService {
   private readonly logger = new Logger(PersistenceService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   /**
    * Save an incoming message to the database
@@ -221,15 +221,16 @@ export class PersistenceService {
       if (!state) return null;
 
       // Prisma automatically deserializes JSON - just need type assertion
+      // Use ConversationState['state'] type to include all fields (customerName, activeGoal, etc.)
       const stateData = (state.state || {
         products: [],
         orders: [],
-      }) as unknown as {
-        products: ProductMention[];
-        orders: OrderMention[];
-      };
+      }) as unknown as ConversationState['state'];
 
-      // Ensure orders array exists (for backwards compatibility)
+      // Ensure arrays exist (for backwards compatibility)
+      if (!stateData.products) {
+        stateData.products = [];
+      }
       if (!stateData.orders) {
         stateData.orders = [];
       }
@@ -239,6 +240,7 @@ export class PersistenceService {
         hasState: true,
         productsCount: stateData.products?.length || 0,
         ordersCount: stateData.orders?.length || 0,
+        hasCustomerName: !!stateData.customerName,
       });
 
       return {

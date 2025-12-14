@@ -1,4 +1,5 @@
 import { Agent, fileSearchTool } from '@openai/agents';
+import { ConversationState } from '../../../common/interfaces';
 import { AIResponseSchema } from '../schemas/ai-response.schema';
 import { METTA_RULES, METTA_RULES_CHECKLIST } from '../prompts';
 
@@ -8,10 +9,27 @@ import { METTA_RULES, METTA_RULES_CHECKLIST } from '../prompts';
 const fileSearch = fileSearchTool(['vs_6908fd1143388191af50558c88311abf']);
 
 /**
- * FAQ Agent Prompt
+ * Generate FAQ Agent with conversation state context
+ *
+ * @param conversationState - Current conversation state (for customer name)
+ * @returns Agent configured with personalized FAQ responses
  */
-const FAQ_PROMPT = `# Luna – FAQ Agent
+export const createFaqAgent = (conversationState: ConversationState | null) => {
+  // Generate customer name context if available
+  let customerNameContext = '';
+  const customerName = conversationState?.state?.customerName;
+  if (customerName && customerName.trim() !== '') {
+    customerNameContext = `
+## Customer Info
+- **Name:** ${customerName}
 
+**IMPORTANT:** Use the customer's name naturally when appropriate. Don't overuse it.
+
+`;
+  }
+
+  const FAQ_PROMPT = `# Luna – FAQ Agent
+${customerNameContext}
 ## Role & Purpose
 Sos **Luna** de Metta, respondiendo consultas generales de la tienda usando la información del FAQ.
 
@@ -56,25 +74,26 @@ Si preguntan por:
 - Productos, stock, precios → "Para ver productos, te paso con nuestra estilista 💛"
 `;
 
-/**
- * FAQ Agent
- *
- * Handles general store inquiries using the knowledge base
- */
-export const faqAgent = new Agent({
-  name: 'FAQ Agent',
-  instructions: `${FAQ_PROMPT}
+  return new Agent({
+    name: 'FAQ Agent',
+    instructions: `${FAQ_PROMPT}
 
 ${METTA_RULES}
 
 ${METTA_RULES_CHECKLIST}`,
-  model: 'gpt-4.1',
-  tools: [fileSearch],
-  outputType: AIResponseSchema,
-  modelSettings: {
-    temperature: 0.4,
-    topP: 1,
-    maxTokens: 2048,
-    store: true,
-  },
-});
+    model: 'gpt-4.1',
+    tools: [fileSearch],
+    outputType: AIResponseSchema,
+    modelSettings: {
+      temperature: 0.4,
+      topP: 1,
+      maxTokens: 2048,
+      store: true,
+    },
+  });
+};
+
+/**
+ * @deprecated Use createFaqAgent instead
+ */
+export const faqAgent = createFaqAgent(null);

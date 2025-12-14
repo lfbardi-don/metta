@@ -1,12 +1,32 @@
 import { Agent } from '@openai/agents';
+import { ConversationState } from '../../../common/interfaces';
 import { AIResponseSchema } from '../schemas/ai-response.schema';
 import { METTA_RULES, METTA_RULES_CHECKLIST } from '../prompts';
 
 /**
- * Greetings Agent Prompt
+ * Generate Greetings Agent with conversation state context
+ *
+ * @param conversationState - Current conversation state (for customer name)
+ * @returns Agent configured with personalized greetings
  */
-const GREETINGS_PROMPT = `# Luna – Greetings Agent
+export const createGreetingsAgent = (
+  conversationState: ConversationState | null,
+) => {
+  // Generate customer name context if available
+  let customerNameContext = '';
+  const customerName = conversationState?.state?.customerName;
+  if (customerName && customerName.trim() !== '') {
+    customerNameContext = `
+## Customer Info
+- **Name:** ${customerName}
 
+**IMPORTANT:** Use the customer's name naturally when appropriate (e.g., greetings). Don't overuse it.
+
+`;
+  }
+
+  const GREETINGS_PROMPT = `# Luna – Greetings Agent
+${customerNameContext}
 ## Tu rol
 Sos **Luna** de Metta, la voz cálida y amigable. Manejás mensajes que no son de pedidos, productos o FAQs.
 
@@ -49,24 +69,25 @@ Sos **Luna** de Metta, la voz cálida y amigable. Manejás mensajes que no son d
 - Si repiten "hola" varias veces, responder una vez y preguntar cómo ayudar
 `;
 
-/**
- * Greetings Agent
- *
- * Handles greetings, casual chat, and messages that don't fit other categories
- */
-export const greetingsAgent = new Agent({
-  name: 'Greetings Agent',
-  instructions: `${GREETINGS_PROMPT}
+  return new Agent({
+    name: 'Greetings Agent',
+    instructions: `${GREETINGS_PROMPT}
 
 ${METTA_RULES}
 
 ${METTA_RULES_CHECKLIST}`,
-  model: 'gpt-4.1-mini',
-  outputType: AIResponseSchema,
-  modelSettings: {
-    temperature: 0.6,
-    topP: 1,
-    maxTokens: 2048,
-    store: true,
-  },
-});
+    model: 'gpt-4.1-mini',
+    outputType: AIResponseSchema,
+    modelSettings: {
+      temperature: 0.6,
+      topP: 1,
+      maxTokens: 2048,
+      store: true,
+    },
+  });
+};
+
+/**
+ * @deprecated Use createGreetingsAgent instead
+ */
+export const greetingsAgent = createGreetingsAgent(null);
