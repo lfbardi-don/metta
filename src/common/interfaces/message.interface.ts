@@ -90,36 +90,55 @@ export interface MessageContext {
 }
 
 /**
- * Simplified SQS message format sent by Lambda
+ * Inbound message job structure received from SQS
  * Lambda pre-processes Chatwoot webhooks and sends this simplified structure
  */
-export interface SimplifiedSQSMessage {
+export interface InboundMessageJob {
   messageId: string;
   conversationId: string;
   userText: string;
-  customerId: string;
+  customerId?: string;
   accountId: string;
+  senderName?: string;
+  attachments?: Array<{
+    id: string | number;
+    data_url: string;
+    file_type: string;
+    extension?: string;
+  }>;
 }
 
 /**
- * Helper function to convert simplified SQS message to IncomingMessage
+ * @deprecated Use InboundMessageJob instead
+ */
+export type SimplifiedSQSMessage = InboundMessageJob;
+
+/**
+ * Helper function to convert inbound message job to IncomingMessage
  * Used by QueueProcessor to standardize messages from SQS
  */
-export function fromSimplifiedSQS(
-  payload: SimplifiedSQSMessage,
+export function fromInboundMessageJob(
+  payload: InboundMessageJob,
 ): IncomingMessage {
   return {
     messageId: payload.messageId,
     conversationId: payload.conversationId,
-    contactId: payload.customerId,
+    contactId: payload.customerId ?? 'unknown',
     content: payload.userText,
     timestamp: new Date(), // SQS message doesn't include timestamp, use current time
     metadata: {
       accountId: payload.accountId,
       source: 'lambda-sqs',
+      senderName: payload.senderName,
+      attachments: payload.attachments,
     },
   };
 }
+
+/**
+ * @deprecated Use fromInboundMessageJob instead
+ */
+export const fromSimplifiedSQS = fromInboundMessageJob;
 
 /**
  * Helper function to convert Chatwoot webhook payload to IncomingMessage

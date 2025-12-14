@@ -16,7 +16,7 @@ export class MessageProcessorService {
     private readonly workflowAIService: WorkflowAIService,
     private readonly chatwootService: ChatwootService,
     private readonly persistenceService: PersistenceService,
-  ) {}
+  ) { }
 
   /**
    * Process a batch of messages for a specific conversation
@@ -46,6 +46,26 @@ export class MessageProcessorService {
       // 2. Save all incoming messages to persistence (audit log)
       for (const incomingMessage of incomingMessages) {
         await this.persistenceService.saveIncomingMessage(incomingMessage);
+      }
+
+      // 2.5. Update customer name from senderName if not already set in state
+      const lastMessage = messages[messages.length - 1];
+      const senderName = lastMessage.senderName;
+      if (senderName) {
+        const conversationState =
+          await this.persistenceService.getConversationState(conversationId);
+        const existingName = conversationState?.state?.customerName;
+
+        // Only update if name is empty/undefined/null
+        if (!existingName || existingName.trim() === '') {
+          this.logger.log(
+            `Updating customer name from senderName: "${senderName}"`,
+          );
+          await this.persistenceService.updateFullConversationState(
+            conversationId,
+            { customerName: senderName },
+          );
+        }
       }
 
       // 3. Process with Workflow AI

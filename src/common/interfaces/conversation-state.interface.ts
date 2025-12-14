@@ -197,6 +197,9 @@ export interface ConversationState {
 
   /** State object containing products, orders, goals, and context (stored as JSONB) */
   state: {
+    /** Customer name (from sender info or collected during conversation) */
+    customerName?: string;
+
     /** Products mentioned (prevents hallucination) */
     products: ProductMention[];
 
